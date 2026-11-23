@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "CS2 SkinWiki",
+    "slug": "cs2-skinwiki",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "cs2skinwiki",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}
