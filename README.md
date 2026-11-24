@@ -2,7 +2,7 @@
 
 Aplicativo em **React Native / Expo (JavaScript)** para consulta de skins de *Counter-Strike 2*, simulação de abertura de caixas, contratos de troca e acompanhamento de cotações de mercado.
 
-> **Estado atual:** Esqueleto inicial do projeto com navegação configurada via **Expo Router** e **Drawer Navigator** (9 telas), ainda sem integração com APIs externas ou estilização final.
+> **Estado atual:** Navegação configurada via **Expo Router** e **Drawer Navigator** (9 telas), com a tela **Catálogo (`app/catalogo.js`)** implementada com busca, filtros e consumo da API ByMykel CSGO-API (demais telas ainda em esqueleto).
 
 ## Páginas do Aplicativo (9 telas)
 
