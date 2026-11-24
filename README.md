@@ -21,7 +21,7 @@ Aplicativo em **React Native / Expo (JavaScript)** para consulta de skins de *Co
 5. **Contrato de Trocas (`app/contrato.js`)**  
    Simulador de *Trade-Up Contract* para selecionar 10 skins de mesma raridade. Calcula em tempo real as probabilidades de retorno por coleção, o *float* resultante com base na média das entradas e compara o custo total dos insumos com o preço da skin sorteada.
 
-6. **Inventário Aleatório (`app/inventario.js`)**  
+6. **Inventário (`app/inventario.js`)**  
    Gerador de *loadout* completo que sorteia 1 Faca, 1 Luva, 1 Glock-18, 1 USP-S, 1 AK-47, 1 M4A1-S e 1 AWP, mostrando estados de conservação, preços individuais e o valor total do kit.
 
 7. **Favoritos (`app/favoritos.js`)**  

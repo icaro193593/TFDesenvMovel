@@ -28,7 +28,7 @@ export default function InicioScreen() {
           <Text style={styles.textoBotao}>Contrato de Trocas</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.botao} activeOpacity={0.7} onPress={() => router.push('/inventario')}>
-          <Text style={styles.textoBotao}>Inventário Aleatório</Text>
+          <Text style={styles.textoBotao}>Inventário</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.botao} activeOpacity={0.7} onPress={() => router.push('/favoritos')}>
           <Text style={styles.textoBotao}>Favoritos</Text>

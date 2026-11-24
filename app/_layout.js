@@ -76,7 +76,7 @@ export default function RootLayout() {
         <Drawer.Screen
           name="inventario"
           options={{
-            title: 'Inventário Aleatório',
+            title: 'Inventário',
             drawerIcon: ({ color, size }) => (
               <MaterialIcons name="shuffle" size={size} color={color} />
             ),
