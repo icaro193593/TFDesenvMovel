@@ -47,15 +47,6 @@ export default function RootLayout() {
           }}
         />
         <Drawer.Screen
-          name="colecoes"
-          options={{
-            title: 'Coleções e Caixas',
-            drawerIcon: ({ color, size }) => (
-              <MaterialIcons name="collections" size={size} color={color} />
-            ),
-          }}
-        />
-        <Drawer.Screen
           name="caixas"
           options={{
             title: 'Abertura de Caixas',
@@ -79,15 +70,6 @@ export default function RootLayout() {
             title: 'Inventário',
             drawerIcon: ({ color, size }) => (
               <MaterialIcons name="shuffle" size={size} color={color} />
-            ),
-          }}
-        />
-        <Drawer.Screen
-          name="favoritos"
-          options={{
-            title: 'Favoritos',
-            drawerIcon: ({ color, size }) => (
-              <MaterialIcons name="favorite" size={size} color={color} />
             ),
           }}
         />

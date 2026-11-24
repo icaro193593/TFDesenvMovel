@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -8,26 +8,76 @@ import {
   FlatList,
   ActivityIndicator,
   Image,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
+import {
+  converterValorMoeda,
+  formatarPrecoMoeda,
+  obterMoedaSelecionada,
+} from '../services/priceService';
 
 // Chave utilizada para persistência do inventário local do usuário
 const STORAGE_KEY_INVENTARIO = '@inventario_skins';
 
+// Opções de ordenação disponíveis no modal de filtro
+const OPCOES_ORDENACAO = [
+  { id: 'maior_preco', rotulo: 'Maior preço' },
+  { id: 'menor_preco', rotulo: 'Menor preço' },
+  { id: 'mais_recente', rotulo: 'Mais recente' },
+  { id: 'menos_recente', rotulo: 'Menos recente' },
+];
+
+// Extrai timestamp numérico (ms) de campos conhecidos ou do idInventario/idUnico gerado via Date.now()
+const obterTimestampItem = (item) => {
+  if (!item) return null;
+  if (typeof item.timestamp === 'number' && Number.isFinite(item.timestamp)) {
+    return item.timestamp;
+  }
+  if (typeof item.criadoEm === 'number' && Number.isFinite(item.criadoEm)) {
+    return item.criadoEm;
+  }
+  const idBruto = String(item.idInventario || item.idUnico || '');
+  const matchId = idBruto.match(/^(\d{12,16})(?:_|$)/);
+  if (matchId) {
+    const ts = Number(matchId[1]);
+    if (Number.isFinite(ts)) return ts;
+  }
+  return null;
+};
+
+// Converte dataObtencao (DD/MM/YYYY) em timestamp de dia para fallback
+const obterDataDiaItem = (item) => {
+  if (!item?.dataObtencao || typeof item.dataObtencao !== 'string') return null;
+  const matchData = item.dataObtencao.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!matchData) return null;
+  const dia = Number(matchData[1]);
+  const mes = Number(matchData[2]) - 1;
+  const ano = Number(matchData[3]);
+  const ts = new Date(ano, mes, dia).getTime();
+  return Number.isFinite(ts) ? ts : null;
+};
+
 export default function InventarioScreen() {
   const [itens, setItens] = useState([]);
+  const [moedaAtual, setMoedaAtual] = useState('USD');
   const [isLoading, setIsLoading] = useState(true);
   const [busca, setBusca] = useState('');
-  const [ordenacao, setOrdenacao] = useState('recentes');
+  const [ordenacao, setOrdenacao] = useState('mais_recente');
+  const [modalOrdenacaoAberto, setModalOrdenacaoAberto] = useState(false);
 
-  // Carrega as skins salvas no AsyncStorage
+  // Carrega as skins salvas e a moeda ativa do AsyncStorage
   const carregarInventario = () => {
     setIsLoading(true);
-    AsyncStorage.getItem(STORAGE_KEY_INVENTARIO)
-      .then((dados) => {
+    Promise.all([
+      AsyncStorage.getItem(STORAGE_KEY_INVENTARIO),
+      obterMoedaSelecionada(),
+    ])
+      .then(([dados, moeda]) => {
+        setMoedaAtual(moeda);
         if (dados) {
           const lista = JSON.parse(dados);
           setItens(Array.isArray(lista) ? lista : []);
@@ -44,12 +94,25 @@ export default function InventarioScreen() {
       });
   };
 
-  // Atualiza automaticamente o inventário toda vez que o usuário entra na aba
+  // Atualiza automaticamente o inventário e a moeda toda vez que o usuário entra na aba
   useFocusEffect(
     useCallback(() => {
       carregarInventario();
     }, [])
   );
+
+  // Calcula o valor da skin na moeda ativa (assume 'USD' para itens antigos sem campo moeda)
+  const obterValorNaMoedaAtual = (item) => {
+    const moedaItem = item.moeda || 'USD';
+    if (moedaItem === moedaAtual && typeof item.valorNumerico === 'number') {
+      return item.valorNumerico;
+    }
+    if (typeof item.valorUsd === 'number') {
+      return converterValorMoeda(item.valorUsd, 'USD', moedaAtual);
+    }
+    const valorBase = typeof item.valorNumerico === 'number' ? item.valorNumerico : 0;
+    return converterValorMoeda(valorBase, moedaItem, moedaAtual);
+  };
 
   // Remove um item específico do inventário pelo ID único
   const removerItem = (idInventario) => {
@@ -73,6 +136,12 @@ export default function InventarioScreen() {
     );
   };
 
+  // Mapa de índice original para fallback estável na ordenação por data
+  const indicesOriginais = new Map();
+  itens.forEach((item, idx) => {
+    indicesOriginais.set(item, idx);
+  });
+
   // Filtra e ordena as skins do inventário
   const itensProcessados = itens
     .filter((item) => {
@@ -84,21 +153,35 @@ export default function InventarioScreen() {
       return nome.includes(termo) || caixa.includes(termo) || wear.includes(termo);
     })
     .sort((a, b) => {
-      const precoA = a.valorNumerico || 0;
-      const precoB = b.valorNumerico || 0;
-      if (ordenacao === 'maior_valor') {
-        return precoB - precoA;
+      if (ordenacao === 'maior_preco') {
+        return obterValorNaMoedaAtual(b) - obterValorNaMoedaAtual(a);
       }
-      if (ordenacao === 'menor_valor') {
-        return precoA - precoB;
+      if (ordenacao === 'menor_preco') {
+        return obterValorNaMoedaAtual(a) - obterValorNaMoedaAtual(b);
       }
-      // Padrão: mais recentes (ordem de inserção natural)
-      return 0;
+
+      const direcao = ordenacao === 'menos_recente' ? 1 : -1;
+      const tsA = obterTimestampItem(a);
+      const tsB = obterTimestampItem(b);
+      if (tsA !== null && tsB !== null && tsA !== tsB) {
+        return (tsA - tsB) * direcao;
+      }
+
+      const diaA = obterDataDiaItem(a);
+      const diaB = obterDataDiaItem(b);
+      if (diaA !== null && diaB !== null && diaA !== diaB) {
+        return (diaA - diaB) * direcao;
+      }
+
+      // Fallback para ordem de inserção (unshift mantém o mais recente no índice 0)
+      const idxA = indicesOriginais.get(a) ?? 0;
+      const idxB = indicesOriginais.get(b) ?? 0;
+      return ordenacao === 'menos_recente' ? idxB - idxA : idxA - idxB;
     });
 
-  // Calcula o valor total estimado de todas as skins guardadas
+  // Calcula o valor total estimado de todas as skins guardadas na moeda ativa
   const valorTotalInventario = itens.reduce((acc, curr) => {
-    return acc + (curr.valorNumerico || 0);
+    return acc + obterValorNaMoedaAtual(curr);
   }, 0);
 
   // Exibição de carregamento inicial (somente no primeiro carregamento)
@@ -130,7 +213,7 @@ export default function InventarioScreen() {
             <View style={styles.colunaResumo}>
               <Text style={styles.rotuloResumo}>VALOR TOTAL ESTIMADO</Text>
               <Text style={styles.valorResumo}>
-                $ {valorTotalInventario.toFixed(2)} USD
+                {formatarPrecoMoeda(valorTotalInventario, moedaAtual)}
               </Text>
             </View>
 
@@ -146,83 +229,42 @@ export default function InventarioScreen() {
         )}
       </View>
 
-      {/* Barra de Busca */}
+      {/* Barra de Busca e Botão de Filtro lado a lado */}
       {itens.length > 0 && (
-        <View style={styles.barraBusca}>
-          <TextInput
-            style={styles.campoBusca}
-            value={busca}
-            onChangeText={setBusca}
-            placeholder="Buscar por skin, arma ou caixa..."
-            placeholderTextColor="#5D79AE"
-          />
-          {busca.length > 0 && (
-            <TouchableOpacity
-              style={styles.botaoLimparBusca}
-              activeOpacity={0.7}
-              onPress={() => setBusca('')}
-            >
-              <Text style={styles.textoLimparBusca}>Limpar</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
-
-      {/* Filtros de Ordenação */}
-      {itens.length > 0 && (
-        <View style={styles.linhaOrdenacao}>
-          <TouchableOpacity
-            style={[
-              styles.botaoOrdenacao,
-              ordenacao === 'recentes' && styles.botaoOrdenacaoAtivo,
-            ]}
-            activeOpacity={0.7}
-            onPress={() => setOrdenacao('recentes')}
-          >
-            <Text
-              style={[
-                styles.textoOrdenacao,
-                ordenacao === 'recentes' && styles.textoOrdenacaoAtivo,
-              ]}
-            >
-              Mais Recentes
-            </Text>
-          </TouchableOpacity>
+        <View style={styles.linhaBuscaFiltro}>
+          <View style={styles.barraBusca}>
+            <TextInput
+              style={styles.campoBusca}
+              value={busca}
+              onChangeText={setBusca}
+              placeholder="Buscar por skin, arma ou caixa..."
+              placeholderTextColor="#5D79AE"
+            />
+            {busca.length > 0 && (
+              <TouchableOpacity
+                style={styles.botaoLimparBusca}
+                activeOpacity={0.7}
+                onPress={() => setBusca('')}
+              >
+                <Text style={styles.textoLimparBusca}>Limpar</Text>
+              </TouchableOpacity>
+            )}
+          </View>
 
           <TouchableOpacity
             style={[
-              styles.botaoOrdenacao,
-              ordenacao === 'maior_valor' && styles.botaoOrdenacaoAtivo,
+              styles.botaoFiltro,
+              ordenacao !== 'mais_recente' && styles.botaoFiltroAtivo,
             ]}
             activeOpacity={0.7}
-            onPress={() => setOrdenacao('maior_valor')}
+            accessibilityLabel="Ordenar inventário"
+            onPress={() => setModalOrdenacaoAberto(true)}
           >
-            <Text
-              style={[
-                styles.textoOrdenacao,
-                ordenacao === 'maior_valor' && styles.textoOrdenacaoAtivo,
-              ]}
-            >
-              Maior Preço
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.botaoOrdenacao,
-              ordenacao === 'menor_valor' && styles.botaoOrdenacaoAtivo,
-            ]}
-            activeOpacity={0.7}
-            onPress={() => setOrdenacao('menor_valor')}
-          >
-            <Text
-              style={[
-                styles.textoOrdenacao,
-                ordenacao === 'menor_valor' && styles.textoOrdenacaoAtivo,
-              ]}
-            >
-              Menor Preço
-            </Text>
+            <MaterialIcons
+              name="filter-list"
+              size={22}
+              color={ordenacao !== 'mais_recente' ? '#1E4C8A' : '#2B6CB0'}
+            />
           </TouchableOpacity>
         </View>
       )}
@@ -284,7 +326,7 @@ export default function InventarioScreen() {
 
                 <View style={styles.linhaPrecoData}>
                   <Text style={styles.precoItem}>
-                    {item.preco || '$ 0.00 USD'}
+                    {formatarPrecoMoeda(obterValorNaMoedaAtual(item), moedaAtual)}
                   </Text>
                   {item.dataObtencao && (
                     <Text style={styles.dataItem}>
@@ -343,6 +385,51 @@ export default function InventarioScreen() {
           </View>
         )}
       />
+
+      {/* Modal de Ordenação do Inventário */}
+      <Modal
+        visible={modalOrdenacaoAberto}
+        onRequestClose={() => setModalOrdenacaoAberto(false)}
+        animationType="slide"
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <Text style={styles.modalTitulo}>Ordenar Inventário</Text>
+          <FlatList
+            style={styles.listaModal}
+            data={OPCOES_ORDENACAO}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => {
+              const ativa = item.id === ordenacao;
+              return (
+                <TouchableOpacity
+                  style={[styles.opcaoModal, ativa && styles.opcaoModalAtiva]}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    setOrdenacao(item.id);
+                    setModalOrdenacaoAberto(false);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.textoOpcaoModal,
+                      ativa && styles.textoOpcaoModalAtiva,
+                    ]}
+                  >
+                    {item.rotulo}
+                  </Text>
+                </TouchableOpacity>
+              );
+            }}
+          />
+          <TouchableOpacity
+            style={styles.botaoFecharModal}
+            activeOpacity={0.7}
+            onPress={() => setModalOrdenacaoAberto(false)}
+          >
+            <Text style={styles.textoBotaoFecharModal}>Fechar</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -427,12 +514,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
   },
-  barraBusca: {
+  linhaBuscaFiltro: {
     flexDirection: 'row',
     alignItems: 'center',
     marginHorizontal: 16,
     marginTop: 6,
-    marginBottom: 6,
+    marginBottom: 8,
+    gap: 8,
+  },
+  barraBusca: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#68A3E5',
@@ -454,32 +547,69 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  linhaOrdenacao: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    marginBottom: 8,
-    gap: 6,
-  },
-  botaoOrdenacao: {
-    flex: 1,
+  botaoFiltro: {
+    width: 42,
+    height: 42,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#68A3E5',
-    borderRadius: 6,
-    paddingVertical: 6,
+    borderRadius: 8,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  botaoOrdenacaoAtivo: {
+  botaoFiltroAtivo: {
+    backgroundColor: '#EBF4FC',
+    borderColor: '#1E4C8A',
+    borderWidth: 1.5,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+  },
+  modalTitulo: {
+    color: '#1E4C8A',
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 14,
+  },
+  listaModal: {
+    flex: 1,
+  },
+  opcaoModal: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#68A3E5',
+    borderRadius: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    marginBottom: 8,
+  },
+  opcaoModalAtiva: {
     backgroundColor: '#1E4C8A',
     borderColor: '#1E4C8A',
   },
-  textoOrdenacao: {
+  textoOpcaoModal: {
     color: '#1E4C8A',
-    fontSize: 11,
+    fontSize: 16,
     fontWeight: '600',
   },
-  textoOrdenacaoAtivo: {
+  textoOpcaoModalAtiva: {
     color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+  botaoFecharModal: {
+    backgroundColor: '#EBF4FC',
+    borderWidth: 1,
+    borderColor: '#2B6CB0',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  textoBotaoFecharModal: {
+    color: '#1E4C8A',
+    fontSize: 16,
     fontWeight: 'bold',
   },
   conteudoLista: {

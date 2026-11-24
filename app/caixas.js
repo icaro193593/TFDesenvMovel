@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -14,9 +14,15 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from 'expo-router';
 import CaseCard from '../components/CaseCard';
 import RouletteItem from '../components/RouletteItem';
-import { obterPrecoSkin } from '../services/priceService';
+import {
+  obterPrecoSkin,
+  obterMoedaSelecionada,
+  formatarPrecoMoeda,
+  converterValorMoeda,
+} from '../services/priceService';
 
 // Endereço oficial da API ByMykel CSGO-API com todas as caixas do jogo
 const URL_API_CRATES =
@@ -64,7 +70,7 @@ export default function CaixasScreen() {
   const [dadosPreco, setDadosPreco] = useState(null);
   const [buscandoPreco, setBuscandoPreco] = useState(false);
   const [modalRevelacaoAberto, setModalRevelacaoAberto] = useState(false);
-  const [salvoFavoritos, setSalvoFavoritos] = useState(false);
+  const [moedaAtual, setMoedaAtual] = useState('USD');
 
   // Aba selecionada na visualização de conteúdo da caixa ('todas' ou 'raras')
   const [abaConteudo, setAbaConteudo] = useState('todas');
@@ -73,6 +79,9 @@ export default function CaixasScreen() {
   const roletaRef = useRef(null);
   // Referência para guardar o identificador do setInterval da animação
   const timerAnimacaoRef = useRef(null);
+  // Referência da skin ativa mais recente e fila para serializar gravações no inventário
+  const skinAtivaIdRef = useRef(null);
+  const filaInventarioRef = useRef(Promise.resolve());
 
   // 1. Carrega todas as caixas da API do CS2
   const carregarCaixas = () => {
@@ -103,6 +112,9 @@ export default function CaixasScreen() {
 
   useEffect(() => {
     carregarCaixas();
+    obterMoedaSelecionada().then((moeda) => {
+      setMoedaAtual(moeda);
+    });
 
     // Limpeza de timers ao desmontar o componente (Seção 4.4 do Tutorial)
     return () => {
@@ -111,6 +123,15 @@ export default function CaixasScreen() {
       }
     };
   }, []);
+
+  // Recarrega a moeda ativa sempre que a tela de caixas ganha foco
+  useFocusEffect(
+    useCallback(() => {
+      obterMoedaSelecionada().then((moeda) => {
+        setMoedaAtual(moeda);
+      });
+    }, [])
+  );
 
   // 2. Monta uma esteira inicial para a caixa selecionada
   useEffect(() => {
@@ -216,7 +237,7 @@ export default function CaixasScreen() {
     setIndiceDestacado(null);
     setSkinGanha(null);
     setDadosPreco(null);
-    setSalvoFavoritos(false);
+    skinAtivaIdRef.current = null;
 
     // Sorteia a skin vencedora
     const resultado = sortearSkin(caixaSelecionada);
@@ -298,18 +319,25 @@ export default function CaixasScreen() {
         setIsSpinning(false);
         setIndiceDestacado(INDICE_VENCEDOR);
 
-        // Prepara os dados completos do prêmio
+        // Prepara os dados completos do prêmio com identificador único
+        const idUnico = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
         const premioCompleto = {
           ...skinVencedora,
+          idUnico,
+          idInventario: idUnico,
           floatValor: resultado.floatValor,
           wearNome: resultado.wearNome,
           isStatTrak: resultado.isStatTrak,
           isFacaOuLuva: resultado.isFacaOuLuva,
           nomeCaixaOrigem: caixaSelecionada.name,
         };
+        skinAtivaIdRef.current = idUnico;
         setSkinGanha(premioCompleto);
 
-        // Dispara busca do preço via API PriceEmpire (com fallback)
+        // Salva automaticamente no inventário antes mesmo do preço carregar
+        salvarSkinAutomaticaNoInventario(premioCompleto);
+
+        // Dispara busca do preço via API PriceEmpire (com fallback) e atualiza a entrada salva
         buscarPrecoItem(premioCompleto);
 
         // Pequena pausa dramática de 700ms antes de abrir o modal revelador
@@ -328,46 +356,117 @@ export default function CaixasScreen() {
     const raridade = item.rarity?.name || 'Mil-Spec Grade';
     obterPrecoSkin(item.name, raridade, item.wearNome, item.isStatTrak)
       .then((resposta) => {
-        setDadosPreco(resposta);
+        if (skinAtivaIdRef.current === item.idUnico) {
+          setDadosPreco(resposta);
+          if (resposta?.moeda) {
+            setMoedaAtual(resposta.moeda);
+          }
+        }
+        atualizarPrecoSkinNoInventario(item.idUnico, resposta);
       })
       .catch(() => {
-        setDadosPreco({
-          precoFormatado: '$ 15.00 USD',
+        const valorUsdFallback = 15.0;
+        const valorConvertido = converterValorMoeda(
+          valorUsdFallback,
+          'USD',
+          moedaAtual
+        );
+        const precoFallback = {
+          precoFormatado: formatarPrecoMoeda(valorConvertido, moedaAtual),
           fonte: 'Mercado CS2 (Estimado)',
-          valorNumerico: 15.0,
-        });
+          valorNumerico: valorConvertido,
+          valorUsd: valorUsdFallback,
+          moeda: moedaAtual,
+        };
+        if (skinAtivaIdRef.current === item.idUnico) {
+          setDadosPreco(precoFallback);
+        }
+        atualizarPrecoSkinNoInventario(item.idUnico, precoFallback);
       })
       .finally(() => {
-        setBuscandoPreco(false);
+        if (skinAtivaIdRef.current === item.idUnico) {
+          setBuscandoPreco(false);
+        }
       });
   };
 
-  // 6. Salvar skin aberta no AsyncStorage (Inventário)
-  const salvarSkinNoInventario = () => {
-    if (!skinGanha) return;
-
-    AsyncStorage.getItem('@inventario_skins')
-      .then((dados) => {
-        const listaAtual = dados ? JSON.parse(dados) : [];
-        const itemParaSalvar = {
-          ...skinGanha,
-          idInventario: `${skinGanha.id}-${Date.now()}`,
-          dataObtencao: new Date().toLocaleDateString('pt-BR'),
-          preco: dadosPreco ? dadosPreco.precoFormatado : '$ 15.00 USD',
-          valorNumerico: dadosPreco?.valorNumerico || 15.0,
-        };
-        listaAtual.unshift(itemParaSalvar);
-        return AsyncStorage.setItem(
-          '@inventario_skins',
-          JSON.stringify(listaAtual)
-        );
-      })
-      .then(() => {
-        setSalvoFavoritos(true);
-      })
+  // Serializa leituras/escritas em @inventario_skins para evitar sobrescrita em aberturas rápidas
+  const enfileirarOperacaoInventario = (operacao) => {
+    filaInventarioRef.current = filaInventarioRef.current
+      .then(operacao)
       .catch((err) => {
-        console.error('Erro ao salvar no inventário:', err);
+        console.error('Erro ao atualizar o inventário:', err);
       });
+    return filaInventarioRef.current;
+  };
+
+  // 6. Salvar skin automaticamente no AsyncStorage (Inventário) ao revelar
+  const salvarSkinAutomaticaNoInventario = (item) => {
+    if (!item?.idUnico) return;
+
+    const moedaInicial = moedaAtual || 'USD';
+    const itemParaSalvar = {
+      ...item,
+      idUnico: item.idUnico,
+      idInventario: item.idInventario || item.idUnico,
+      dataObtencao: new Date().toLocaleDateString('pt-BR'),
+      preco: formatarPrecoMoeda(0, moedaInicial),
+      valorNumerico: 0,
+      valorUsd: 0,
+      moeda: moedaInicial,
+    };
+
+    enfileirarOperacaoInventario(async () => {
+      const dados = await AsyncStorage.getItem('@inventario_skins');
+      const listaBruta = dados ? JSON.parse(dados) : [];
+      const listaAtual = Array.isArray(listaBruta) ? listaBruta : [];
+
+      if (listaAtual.some((entry) => entry.idUnico === item.idUnico)) {
+        return;
+      }
+
+      listaAtual.unshift(itemParaSalvar);
+      await AsyncStorage.setItem('@inventario_skins', JSON.stringify(listaAtual));
+    });
+  };
+
+  // Atualiza o preço real da skin já salva no inventário usando seu idUnico
+  const atualizarPrecoSkinNoInventario = (idUnico, precoDados) => {
+    if (!idUnico || !precoDados) return;
+
+    const moedaItem = precoDados.moeda || moedaAtual || 'USD';
+    const valorUsdItem =
+      typeof precoDados.valorUsd === 'number'
+        ? precoDados.valorUsd
+        : typeof precoDados.valorNumerico === 'number'
+        ? converterValorMoeda(precoDados.valorNumerico, moedaItem, 'USD')
+        : 15.0;
+    const valorNumericoItem =
+      typeof precoDados.valorNumerico === 'number'
+        ? precoDados.valorNumerico
+        : converterValorMoeda(valorUsdItem, 'USD', moedaItem);
+    const precoItem =
+      precoDados.precoFormatado ||
+      formatarPrecoMoeda(valorNumericoItem, moedaItem);
+
+    enfileirarOperacaoInventario(async () => {
+      const dados = await AsyncStorage.getItem('@inventario_skins');
+      const listaBruta = dados ? JSON.parse(dados) : [];
+      if (!Array.isArray(listaBruta)) return;
+
+      const indice = listaBruta.findIndex((entry) => entry.idUnico === idUnico);
+      if (indice === -1) return;
+
+      listaBruta[indice] = {
+        ...listaBruta[indice],
+        preco: precoItem,
+        valorNumerico: valorNumericoItem,
+        valorUsd: valorUsdItem,
+        moeda: moedaItem,
+      };
+
+      await AsyncStorage.setItem('@inventario_skins', JSON.stringify(listaBruta));
+    });
   };
 
   // Filtragem das caixas na lista principal
@@ -671,7 +770,7 @@ export default function CaixasScreen() {
                 ) : (
                   <View style={styles.linhaPreco}>
                     <Text style={styles.valorPreco}>
-                      {dadosPreco?.precoFormatado || '$ 0.00 USD'}
+                      {dadosPreco?.precoFormatado || formatarPrecoMoeda(0, moedaAtual)}
                     </Text>
                     <Text style={styles.fontePreco}>
                       {dadosPreco?.fonte ? `via ${dadosPreco.fonte}` : 'via PriceEmpire'}
@@ -679,6 +778,10 @@ export default function CaixasScreen() {
                   </View>
                 )}
               </View>
+
+              <Text style={styles.textoSalvoAutomatico}>
+                Adicionada automaticamente ao inventário
+              </Text>
 
               {/* Ações do Modal */}
               <View style={styles.acoesModal}>
@@ -693,31 +796,7 @@ export default function CaixasScreen() {
                   }}
                 >
                   <MaterialIcons name="refresh" size={18} color="#0F1923" />
-                  <Text style={styles.textoBotaoAbrirNovamente}>Abrir Outra Vez</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.botaoSalvarFavorito,
-                    salvoFavoritos && styles.botaoSalvarFavoritoAtivo,
-                  ]}
-                  activeOpacity={0.7}
-                  disabled={salvoFavoritos}
-                  onPress={salvarSkinNoInventario}
-                >
-                  <MaterialIcons
-                    name={salvoFavoritos ? 'check' : 'inventory-2'}
-                    size={18}
-                    color={salvoFavoritos ? '#FFFFFF' : '#1E4C8A'}
-                  />
-                  <Text
-                    style={[
-                      styles.textoBotaoSalvar,
-                      salvoFavoritos && styles.textoBotaoSalvarAtivo,
-                    ]}
-                  >
-                    {salvoFavoritos ? 'Guardado no Inventário!' : 'Guardar no Inventário'}
-                  </Text>
+                  <Text style={styles.textoBotaoAbrirNovamente}>Abrir Novamente</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -1318,9 +1397,16 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
   },
+  textoSalvoAutomatico: {
+    color: '#10B981',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 12,
+    textAlign: 'center',
+  },
   acoesModal: {
     width: '100%',
-    marginTop: 16,
+    marginTop: 10,
     gap: 8,
   },
   botaoAbrirNovamente: {
@@ -1335,30 +1421,6 @@ const styles = StyleSheet.create({
   textoBotaoAbrirNovamente: {
     color: '#0F1923',
     fontSize: 15,
-    fontWeight: 'bold',
-  },
-  botaoSalvarFavorito: {
-    backgroundColor: '#EBF4FC',
-    borderWidth: 1,
-    borderColor: '#68A3E5',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    paddingVertical: 10,
-    gap: 6,
-  },
-  botaoSalvarFavoritoAtivo: {
-    backgroundColor: '#10B981',
-    borderColor: '#10B981',
-  },
-  textoBotaoSalvar: {
-    color: '#1E4C8A',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  textoBotaoSalvarAtivo: {
-    color: '#FFFFFF',
     fontWeight: 'bold',
   },
   botaoFecharModal: {

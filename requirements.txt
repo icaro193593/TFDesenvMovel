@@ -1,0 +1,83 @@
+================================================================================
+CS2 SkinWiki & Market Browser — Requisitos do Projeto (requirements.txt)
+================================================================================
+
+1. REQUISITOS DE AMBIENTE
+--------------------------------------------------------------------------------
+- Node.js: v22.14.0 (recomendado Node.js LTS >= 18 / 20 / 22)
+- npm: 10.9.2
+- Expo CLI (local via npx): 54.0.28 (Expo SDK ~54.0.0)
+- Dispositivo / Simulador:
+  * App Expo Go compatível com Expo SDK 54 (Android / iOS), ou
+  * Emulador Android (Android Studio) / Simulador iOS (macOS / Xcode), ou
+  * Navegador Web (suporte via react-native-web + Metro bundler)
+- Conexão com a Internet: necessária para instalação de pacotes e consumo das APIs externas em tempo de execução.
+
+2. DEPENDÊNCIAS DO PROJETO (versões exatas de TF/package.json)
+--------------------------------------------------------------------------------
+
+[2.1 Core Expo / React Native]
+- expo: ~54.0.0
+- react: 19.1.0                (versão fixa compatível com Expo SDK 54)
+- react-dom: 19.1.0            (versão fixa compatível com Expo SDK 54 - Regra 7.1)
+- react-native: 0.81.5
+- react-native-web: ^0.21.0
+- expo-constants: ~18.0.14
+- expo-linking: ~8.0.12
+
+[2.2 Navegação (Expo Router + Drawer)]
+- expo-router: ~6.0.24
+- @react-navigation/drawer: ^7.5.0
+- @react-navigation/native: ^7.1.8
+- react-native-gesture-handler: ~2.28.0
+- react-native-reanimated: ~4.1.1
+- react-native-screens: ~4.16.0
+- react-native-worklets: 0.5.1
+
+[2.3 Interface, Ícones, Fontes e Área Segura]
+- @expo/vector-icons: ^15.0.3
+- expo-font: ~14.0.12
+- expo-status-bar: ~3.0.9
+- react-native-safe-area-context: ~5.6.0
+
+[2.4 Persistência Local (AsyncStorage)]
+- @react-native-async-storage/async-storage: 2.2.0
+
+3. REQUISITOS DE APIS EXTERNAS
+--------------------------------------------------------------------------------
+- Catálogo e Coleções/Caixas (dados estáticos em JSON via fetch nativo):
+  * ByMykel CSGO-API (gratuita, sem necessidade de API Key)
+    Fornece metadados completos de skins, caixas, coleções, raridades, faixas
+    de float (min_float / max_float) e imagens.
+
+- Mercado e Cotações em Tempo Real (via fetch nativo em services/priceService.js):
+  * Pricempire API (https://api.pricempire.com)
+    Requer API Key (opcionalmente configurável no app e persistida no AsyncStorage
+    sob a chave @pricempire_api_key; plano gratuito disponível para testes).
+  * Fallbacks previstos no projeto:
+    - Steam Community Market API (endpoint público priceoverview, sem API Key) e
+      provedores alternativos descritos na proposta (cs2.sh, Skinstrack,
+      SteamAnalyst, Skinport), além de estimativa local caso as APIs externas
+      estejam indisponíveis ou bloqueadas por CORS/rate-limit.
+
+4. INSTALAÇÃO E EXECUÇÃO
+--------------------------------------------------------------------------------
+Na pasta do projeto (TF/):
+
+1) Instalar todas as dependências listadas em package.json:
+   npm install
+
+   (Opcional) Verificar compatibilidade das dependências com o Expo SDK 54:
+   npx expo install --check
+
+   (Opcional) Reinstalar o módulo de persistência local compatível com o SDK 54:
+   npx expo install @react-native-async-storage/async-storage
+
+2) Iniciar o servidor de desenvolvimento do Expo:
+   npx expo start
+
+   Atalhos de plataforma disponíveis via scripts do package.json:
+   - npm start          (equivalente a npx expo start)
+   - npm run android    (npx expo start --android)
+   - npm run ios        (npx expo start --ios)
+   - npm run web        (npx expo start --web)

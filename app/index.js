@@ -18,9 +18,6 @@ export default function InicioScreen() {
         </TouchableOpacity>
 
         {/* Botões simples das demais telas */}
-        <TouchableOpacity style={styles.botao} activeOpacity={0.7} onPress={() => router.push('/colecoes')}>
-          <Text style={styles.textoBotao}>Coleções e Caixas</Text>
-        </TouchableOpacity>
         <TouchableOpacity style={styles.botao} activeOpacity={0.7} onPress={() => router.push('/caixas')}>
           <Text style={styles.textoBotao}>Abertura de Caixas</Text>
         </TouchableOpacity>
@@ -29,9 +26,6 @@ export default function InicioScreen() {
         </TouchableOpacity>
         <TouchableOpacity style={styles.botao} activeOpacity={0.7} onPress={() => router.push('/inventario')}>
           <Text style={styles.textoBotao}>Inventário</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.botao} activeOpacity={0.7} onPress={() => router.push('/favoritos')}>
-          <Text style={styles.textoBotao}>Favoritos</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.botao} activeOpacity={0.7} onPress={() => router.push('/configuracoes')}>
           <Text style={styles.textoBotao}>Configurações</Text>
