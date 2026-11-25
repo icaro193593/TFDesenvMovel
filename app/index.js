@@ -27,6 +27,9 @@ export default function InicioScreen() {
         <TouchableOpacity style={styles.botao} activeOpacity={0.7} onPress={() => router.push('/inventario')}>
           <Text style={styles.textoBotao}>Inventário</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={styles.botao} activeOpacity={0.7} onPress={() => router.push('/higherlower')}>
+          <Text style={styles.textoBotao}>Higher or Lower</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.botao} activeOpacity={0.7} onPress={() => router.push('/configuracoes')}>
           <Text style={styles.textoBotao}>Configurações</Text>
         </TouchableOpacity>

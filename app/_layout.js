@@ -74,6 +74,15 @@ export default function RootLayout() {
           }}
         />
         <Drawer.Screen
+          name="higherlower"
+          options={{
+            title: 'Higher or Lower',
+            drawerIcon: ({ color, size }) => (
+              <MaterialIcons name="trending-up" size={size} color={color} />
+            ),
+          }}
+        />
+        <Drawer.Screen
           name="detalhes"
           options={{
             title: 'Detalhes da Skin',
