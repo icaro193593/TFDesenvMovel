@@ -1,8 +1,8 @@
 import { StyleSheet, Text, View, Image } from 'react-native';
 
 // Componente reutilizável para os cards de skin do minigame Higher or Lower.
-// Apresenta a skin com imagem centralizada, raridade Classified oficial,
-// e área de preço que pode ser ocultada (???) ou revelada com destaque de acerto/erro.
+// Apresenta a skin com imagem centralizada e área de preço que pode ser ocultada (???)
+// ou revelada, sem exibir a raridade de nenhum dos itens para manter o desafio justo.
 export default function HigherLowerCard({
   skin,
   etiqueta = 'SKIN BASE',
@@ -13,10 +13,8 @@ export default function HigherLowerCard({
     return null;
   }
 
-  // Cor oficial de raridade Classified (#d32ce6) ou cor retornada pela API
-  const corRaridade = skin.rarityColor || '#d32ce6';
   const ehBase = etiqueta.includes('BASE');
-  const corEtiqueta = ehBase ? '#1E4C8A' : '#d32ce6';
+  const corDestaque = ehBase ? '#1E4C8A' : '#F58220';
 
   // Define borda e fundo conforme o estado da rodada
   const bordaDestaque =
@@ -30,18 +28,15 @@ export default function HigherLowerCard({
     <View
       style={[
         styles.card,
-        { borderLeftColor: corRaridade },
+        { borderLeftColor: corDestaque },
         bordaDestaque,
       ]}
     >
-      {/* Linha superior: Etiqueta e Badge Classified */}
+      {/* Linha superior: Etiqueta do Card (sem exibir raridade) */}
       <View style={styles.linhaTopo}>
-        <Text style={[styles.textoEtiqueta, { color: corEtiqueta }]}>
+        <Text style={[styles.textoEtiqueta, { color: corDestaque }]}>
           {etiqueta}
         </Text>
-        <View style={styles.badgeClassified}>
-          <Text style={styles.textoBadgeClassified}>Classified</Text>
-        </View>
       </View>
 
       {/* Container da Imagem da Skin */}
@@ -111,7 +106,6 @@ const styles = StyleSheet.create({
   },
   linhaTopo: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
   },
@@ -119,19 +113,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     letterSpacing: 0.5,
-  },
-  badgeClassified: {
-    backgroundColor: '#FDF2F8',
-    borderWidth: 1,
-    borderColor: '#F472B6',
-    borderRadius: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  textoBadgeClassified: {
-    color: '#d32ce6',
-    fontSize: 11,
-    fontWeight: 'bold',
   },
   containerImagem: {
     backgroundColor: '#EBF4FC',

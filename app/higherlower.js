@@ -13,7 +13,7 @@ import HigherLowerCard from '../components/HigherLowerCard';
 import useHigherOrLower from '../hooks/useHigherOrLower';
 
 // Tela principal do minigame Higher or Lower.
-// Compara o preço de mercado de skins de raridade Classified (rosa).
+// Compara o preço de mercado de skins de diferentes categorias do CS2.
 export default function HigherLowerScreen() {
   const {
     skinBase,
@@ -36,7 +36,7 @@ export default function HigherLowerScreen() {
     return (
       <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.centralizado}>
         <ActivityIndicator size="large" color="#F58220" />
-        <Text style={styles.textoStatus}>Carregando skins Classified...</Text>
+        <Text style={styles.textoStatus}>Carregando skins do jogo...</Text>
       </SafeAreaView>
     );
   }

@@ -385,12 +385,43 @@ function gerarSeed(str) {
 
 /**
  * Calcula uma estimativa de preço de mercado realista e determinística por skin,
- * utilizada para Classified no fallback para evitar requisições lentas consecutivas.
+ * considerando a raridade do item para manter valores consistentes em todas as categorias.
  */
-function calcularPrecoEstimadoDeterministo(skinId, skinNome, wearNome) {
+function calcularPrecoEstimadoDeterministo(skinId, skinNome, wearNome, raridadeNome = '') {
   const seed = gerarSeed(`${skinId || ''}_${skinNome || ''}`);
-  // Faixa realista de mercado para Classified: $22.00 a $77.00 USD
-  const base = 22.0 + ((seed % 1000) / 1000) * 55.0;
+  const r = (raridadeNome || '').toLowerCase();
+
+  let baseMin = 1.0;
+  let baseMax = 5.0;
+
+  if (r.includes('consumer') || r.includes('industrial')) {
+    baseMin = 0.08;
+    baseMax = 1.8;
+  } else if (r.includes('mil-spec') || r.includes('rare_weapon')) {
+    baseMin = 0.6;
+    baseMax = 4.5;
+  } else if (r.includes('restricted') || r.includes('mythical')) {
+    baseMin = 3.0;
+    baseMax = 18.0;
+  } else if (r.includes('classified') || r.includes('legendary')) {
+    baseMin = 20.0;
+    baseMax = 75.0;
+  } else if (r.includes('covert') || r.includes('ancient')) {
+    baseMin = 50.0;
+    baseMax = 320.0;
+  } else if (
+    r.includes('extraordinary') ||
+    r.includes('contraband') ||
+    (skinNome && skinNome.includes('★'))
+  ) {
+    baseMin = 180.0;
+    baseMax = 950.0;
+  } else {
+    baseMin = 5.0;
+    baseMax = 35.0;
+  }
+
+  const base = baseMin + ((seed % 1000) / 1000) * (baseMax - baseMin);
 
   let multiplicadorWear = 0.95;
   const wear = (wearNome || '').toLowerCase();
@@ -404,7 +435,7 @@ function calcularPrecoEstimadoDeterministo(skinId, skinNome, wearNome) {
 }
 
 /**
- * Obtém a lista de skins da raridade Classified com preços atualizados,
+ * Obtém a lista de skins de qualquer raridade com preços atualizados para o minigame,
  * filtrando itens válidos e aplicando arquitetura em 3 camadas com concorrência controlada.
  *
  * @param {string|null} moedaOpcional Moeda desejada ('USD', 'BRL', 'EUR')
@@ -440,8 +471,8 @@ export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
     throw new Error('Formato inválido retornado pela API de skins.');
   }
 
-  // Filtra estritamente Classified com id, name e image válidos
-  const skinsClassified = todasSkins.filter(
+  // Filtra skins de qualquer raridade com id, name e image válidos
+  const skinsElegiveis = todasSkins.filter(
     (skin) =>
       skin &&
       skin.id &&
@@ -450,11 +481,11 @@ export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
       typeof skin.image === 'string' &&
       skin.image.trim().length > 0 &&
       skin.rarity &&
-      skin.rarity.name === 'Classified'
+      typeof skin.rarity.name === 'string'
   );
 
-  if (skinsClassified.length < 2) {
-    throw new Error('Não foi possível carregar skins Classified com preço válido.');
+  if (skinsElegiveis.length < 2) {
+    throw new Error('Não foi possível carregar skins com preço válido.');
   }
 
   // Verifica se há chave de API do PriceEmpire
@@ -491,7 +522,7 @@ export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
         }
 
         const skinsValidasPe = [];
-        for (const skin of skinsClassified) {
+        for (const skin of skinsElegiveis) {
           const wear = obterWearPadrao(skin);
           const hashName = formatarMarketHashName(skin.name, wear, false).toLowerCase();
           const itemPe = mapaPe.get(hashName);
@@ -517,8 +548,8 @@ export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
                   id: skin.id,
                   name: skin.name,
                   image: skin.image,
-                  rarityName: 'Classified',
-                  rarityColor: skin.rarity?.color || '#d32ce6',
+                  rarityName: skin.rarity?.name || '',
+                  rarityColor: skin.rarity?.color || '#2B6CB0',
                   wear,
                   valorUsd,
                   fonte: 'PriceEmpire API',
@@ -529,7 +560,7 @@ export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
         }
 
         if (skinsValidasPe.length >= 2) {
-          return embaralharArray(skinsValidasPe).slice(0, 30);
+          return embaralharArray(skinsValidasPe).slice(0, 35);
         }
       }
     } catch (peErr) {
@@ -538,25 +569,26 @@ export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
   }
 
   // 2. Sem chave PriceEmpire ou após falha no batch:
-  // Embaralha as skins Classified e seleciona até 30 skins distintas
-  const amostra = embaralharArray(skinsClassified).slice(0, 30);
+  // Embaralha as skins elegíveis de qualquer raridade e seleciona amostra
+  const amostra = embaralharArray(skinsElegiveis).slice(0, 35);
   const skinsProntas = [];
   let falhasConsecutivasSteam = 0;
 
   const processarItem = async (skin) => {
     const wear = obterWearPadrao(skin);
+    const raridadeNome = skin.rarity?.name || 'Mil-Spec Grade';
 
     // Proteção de tempo e rate-limit: se a Steam falhar em 2 tentativas consecutivas,
     // passa a usar diretamente o fallback estimado determinístico para o restante do lote
     if (falhasConsecutivasSteam >= 2) {
-      const valorUsd = calcularPrecoEstimadoDeterministo(skin.id, skin.name, wear);
+      const valorUsd = calcularPrecoEstimadoDeterministo(skin.id, skin.name, wear, raridadeNome);
       if (Number.isFinite(valorUsd) && valorUsd > 0) {
         return {
           id: skin.id,
           name: skin.name,
           image: skin.image,
-          rarityName: 'Classified',
-          rarityColor: skin.rarity?.color || '#d32ce6',
+          rarityName: raridadeNome,
+          rarityColor: skin.rarity?.color || '#2B6CB0',
           wear,
           valorUsd,
           fonte: 'Mercado CS2 (Estimado)',
@@ -566,7 +598,7 @@ export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
     }
 
     try {
-      const infoPreco = await obterPrecoSkin(skin.name, 'Classified', wear, false, moeda);
+      const infoPreco = await obterPrecoSkin(skin.name, raridadeNome, wear, false, moeda);
       if (infoPreco && Number.isFinite(infoPreco.valorUsd) && infoPreco.valorUsd > 0) {
         if (
           infoPreco.fonte === 'Steam Community Market' ||
@@ -581,8 +613,8 @@ export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
           id: skin.id,
           name: skin.name,
           image: skin.image,
-          rarityName: 'Classified',
-          rarityColor: skin.rarity?.color || '#d32ce6',
+          rarityName: raridadeNome,
+          rarityColor: skin.rarity?.color || '#2B6CB0',
           wear,
           valorUsd: infoPreco.valorUsd,
           fonte: infoPreco.fonte,

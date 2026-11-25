@@ -139,7 +139,7 @@ export default function useHigherOrLower() {
   }, []);
 
   /**
-   * Carrega o pool de skins Classified (reaproveita cache da sessão se disponível)
+   * Carrega o pool de skins (reaproveita cache da sessão se disponível)
    */
   const carregarSkins = useCallback(
     async (forcar = false) => {
@@ -164,7 +164,7 @@ export default function useHigherOrLower() {
       try {
         const skins = await obterSkinsClassifiedComPreco(moeda);
         if (!skins || skins.length < 2) {
-          throw new Error('Não foi possível carregar skins Classified com preço válido.');
+          throw new Error('Não foi possível carregar skins com preço válido.');
         }
         cacheSkinsSessao = skins;
         poolRef.current = skins;
