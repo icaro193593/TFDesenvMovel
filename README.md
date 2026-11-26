@@ -1,4 +1,4 @@
-# CS2 SkinWiki & Market Browser
+# Garbskins CS2 & Market Browser
 
 Aplicativo em **React Native / Expo (JavaScript)** para consulta de skins de *Counter-Strike 2*, simulação de abertura de caixas, contratos de troca, minigames e acompanhamento de cotações de mercado.
 

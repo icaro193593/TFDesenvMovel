@@ -1,5 +1,5 @@
 ================================================================================
-CS2 SkinWiki & Market Browser — Requisitos do Projeto (requirements.txt)
+Garbskins CS2 & Market Browser — Requisitos do Projeto (requirements.txt)
 ================================================================================
 
 1. REQUISITOS DE AMBIENTE

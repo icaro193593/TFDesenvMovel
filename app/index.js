@@ -8,13 +8,12 @@ export default function InicioScreen() {
       <ScrollView style={styles.container} contentContainerStyle={styles.conteudo}>
         {/* Caixa simples de título no topo */}
         <View style={styles.topo}>
-          <Text style={styles.titulo}>CS2 SkinWiki</Text>
+          <Text style={styles.titulo}>Garbskins CS2</Text>
           <Text style={styles.subtitulo}>Catálogo e ferramentas de CS2</Text>
         </View>
 
-        {/* Botão principal em laranja CS2 */}
-        <TouchableOpacity style={styles.botaoPrincipal} activeOpacity={0.7} onPress={() => router.push('/catalogo')}>
-          <Text style={styles.textoBotaoPrincipal}>Catálogo</Text>
+        <TouchableOpacity style={styles.botao} activeOpacity={0.7} onPress={() => router.push('/catalogo')}>
+          <Text style={styles.textoBotao}>Catálogo</Text>
         </TouchableOpacity>
 
         {/* Botões simples das demais telas */}
@@ -66,18 +65,6 @@ const styles = StyleSheet.create({
     color: '#EBF4FC',
     fontSize: 14,
     marginTop: 4,
-  },
-  botaoPrincipal: {
-    backgroundColor: '#F58220',
-    padding: 14,
-    borderRadius: 8,
-    marginBottom: 10,
-    alignItems: 'center',
-  },
-  textoBotaoPrincipal: {
-    color: '#0F1923',
-    fontSize: 16,
-    fontWeight: 'bold',
   },
   botao: {
     backgroundColor: '#EBF4FC',
