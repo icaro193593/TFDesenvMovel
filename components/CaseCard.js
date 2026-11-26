@@ -1,50 +1,24 @@
+import React from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
+import { CORES } from '../constants/cs2Theme';
 
-// Card customizado para exibição de uma caixa do CS2 na lista
+function limparTexto(texto) {
+  return (texto || '').replace(/[\u2605\u2122]/g, '').trim();
+}
+
 export default function CaseCard({ item, onPress }) {
-  const totalSkins = item.contains ? item.contains.length : 0;
-  const temRaras = item.contains_rare && item.contains_rare.length > 0;
-
   return (
-    <TouchableOpacity
-      style={styles.card}
-      activeOpacity={0.7}
-      onPress={() => onPress && onPress(item)}
-    >
-      <View style={styles.containerImagem}>
+    <TouchableOpacity style={styles.card} activeOpacity={0.8} onPress={() => onPress && onPress(item)}>
+      <View style={styles.imagemBox}>
         {item.image ? (
-          <Image
-            source={{ uri: item.image }}
-            style={styles.imagem}
-            resizeMode="contain"
-          />
+          <Image source={{ uri: item.image }} style={styles.imagem} resizeMode="contain" />
         ) : (
-          <View style={styles.semImagem}>
-            <Text style={styles.textoSemImagem}>Sem imagem</Text>
-          </View>
+          <Text style={styles.semImagem}>Sem imagem</Text>
         )}
       </View>
-
-      <View style={styles.conteudo}>
-        <Text style={styles.nomeCaixa} numberOfLines={2}>
-          {item.name}
-        </Text>
-
-        <View style={styles.linhaBadge}>
-          <Text style={styles.badgeSkins}>
-            {totalSkins} skins
-          </Text>
-          {temRaras && (
-            <Text style={styles.badgeRaras}>
-              ★ Raras
-            </Text>
-          )}
-        </View>
-
-        <View style={styles.botaoAbrir}>
-          <Text style={styles.textoBotaoAbrir}>Abrir Caixa ›</Text>
-        </View>
-      </View>
+      <Text style={styles.nome} numberOfLines={2}>
+        {limparTexto(item.name)}
+      </Text>
     </TouchableOpacity>
   );
 }
@@ -52,84 +26,22 @@ export default function CaseCard({ item, onPress }) {
 const styles = StyleSheet.create({
   card: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.branco,
     borderWidth: 1,
-    borderColor: '#68A3E5',
+    borderColor: CORES.borda,
     borderRadius: 8,
-    padding: 12,
+    padding: 10,
     margin: 6,
     alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 220,
   },
-  containerImagem: {
-    width: '100%',
-    height: 110,
-    backgroundColor: '#EBF4FC',
-    borderRadius: 6,
+  imagemBox: {
+    width: 84,
+    height: 64,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
   },
-  imagem: {
-    width: 100,
-    height: 95,
-  },
-  semImagem: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  textoSemImagem: {
-    color: '#2B6CB0',
-    fontSize: 12,
-  },
-  conteudo: {
-    width: '100%',
-    alignItems: 'center',
-  },
-  nomeCaixa: {
-    color: '#1E3A5F',
-    fontSize: 14,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    minHeight: 36,
-  },
-  linhaBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 6,
-    gap: 6,
-  },
-  badgeSkins: {
-    backgroundColor: '#EBF4FC',
-    color: '#1E4C8A',
-    fontSize: 11,
-    fontWeight: '600',
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 4,
-  },
-  badgeRaras: {
-    backgroundColor: '#FFF4E5',
-    color: '#C95F08',
-    fontSize: 11,
-    fontWeight: 'bold',
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 4,
-  },
-  botaoAbrir: {
-    marginTop: 10,
-    backgroundColor: '#F58220',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    width: '100%',
-    alignItems: 'center',
-  },
-  textoBotaoAbrir: {
-    color: '#0F1923',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
+  imagem: { width: 84, height: 64 },
+  semImagem: { color: CORES.textoSecundario, fontSize: 12 },
+  nome: { color: CORES.texto, fontSize: 13, fontWeight: 'bold', textAlign: 'center' },
 });

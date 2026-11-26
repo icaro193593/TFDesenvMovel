@@ -1,0 +1,33 @@
+// Cores simples do aplicativo Garbskins CS2 (tema claro)
+
+export const CORES = {
+  fundo: '#F5F7FA',
+  branco: '#FFFFFF',
+  borda: '#CBD5E1',
+  azulPrincipal: '#1E4C8A',
+  azulClaro: '#EBF4FC',
+  azulBorda: '#2B6CB0',
+  texto: '#1E293B',
+  textoSecundario: '#64748B',
+  sucesso: '#16A34A',
+  sucessoClaro: '#DCFCE7',
+  erro: '#DC2626',
+  erroClaro: '#FEE2E2',
+  aviso: '#D97706',
+  avisoClaro: '#FEF3C7',
+  modalFundo: 'rgba(0, 0, 0, 0.5)',
+
+  // Cores de raridade do CS2
+  raridades: {
+    'Consumer Grade': '#64748B',
+    'Industrial Grade': '#3B82F6',
+    'Mil-Spec Grade': '#2563EB',
+    'Restricted': '#7C3AED',
+    'Classified': '#C026D3',
+    'Covert': '#DC2626',
+    'Contraband': '#D97706',
+    'Extraordinary': '#CA8A04',
+    'Special Rare Item': '#CA8A04',
+    '★ Special Rare Item': '#CA8A04',
+  },
+};

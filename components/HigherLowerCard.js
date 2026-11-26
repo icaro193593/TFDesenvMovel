@@ -1,193 +1,83 @@
+import React from 'react';
 import { StyleSheet, Text, View, Image } from 'react-native';
+import { CORES } from '../constants/cs2Theme';
 
-// Componente reutilizável para os cards de skin do minigame Higher or Lower.
-// Apresenta a skin com imagem centralizada e área de preço que pode ser ocultada (???)
-// ou revelada, sem exibir a raridade de nenhum dos itens para manter o desafio justo.
-export default function HigherLowerCard({
-  skin,
-  etiqueta = 'SKIN BASE',
-  ocultarPreco = false,
-  destaqueEstado = null, // 'acerto' | 'erro' | null
-}) {
-  if (!skin) {
-    return null;
-  }
-
-  const ehBase = etiqueta.includes('BASE');
-  const corDestaque = ehBase ? '#1E4C8A' : '#F58220';
-
-  // Define borda e fundo conforme o estado da rodada
-  const bordaDestaque =
-    destaqueEstado === 'acerto'
-      ? styles.cardAcerto
-      : destaqueEstado === 'erro'
-      ? styles.cardErro
-      : null;
+// Card simples para exibir uma skin no Higher or Lower (sem raridade)
+export default function HigherLowerCard({ skin, ocultarPreco = false, destaqueEstado = null }) {
+  if (!skin) return null;
 
   return (
     <View
       style={[
         styles.card,
-        { borderLeftColor: corDestaque },
-        bordaDestaque,
+        destaqueEstado === 'acerto' && styles.cardAcerto,
+        destaqueEstado === 'erro' && styles.cardErro,
       ]}
     >
-      {/* Linha superior: Etiqueta do Card (sem exibir raridade) */}
-      <View style={styles.linhaTopo}>
-        <Text style={[styles.textoEtiqueta, { color: corDestaque }]}>
-          {etiqueta}
-        </Text>
-      </View>
+      {skin.image ? (
+        <Image source={{ uri: skin.image }} style={styles.imagem} resizeMode="contain" />
+      ) : (
+        <Text style={styles.semImagem}>Sem imagem</Text>
+      )}
 
-      {/* Container da Imagem da Skin */}
-      <View style={styles.containerImagem}>
-        {skin.image ? (
-          <Image
-            source={{ uri: skin.image }}
-            style={styles.imagem}
-            resizeMode="contain"
-          />
-        ) : (
-          <View style={styles.semImagem}>
-            <Text style={styles.textoSemImagem}>CS2</Text>
-          </View>
-        )}
-      </View>
+      <Text style={styles.nome} numberOfLines={2}>
+        {skin.name}
+      </Text>
 
-      {/* Informações da Skin: Nome e Condição (Wear) */}
-      <View style={styles.infoSkin}>
-        <Text style={styles.nomeSkin} numberOfLines={2}>
-          {skin.name}
-        </Text>
-        {skin.wear ? (
-          <Text style={styles.wearSkin}>{skin.wear}</Text>
-        ) : null}
-      </View>
-
-      {/* Área do Preço: Oculto (???) ou Revelado */}
-      <View style={styles.areaPreco}>
-        {ocultarPreco ? (
-          <View style={styles.caixaPrecoOculto}>
-            <Text style={styles.textoPrecoOculto}>???</Text>
-          </View>
-        ) : (
-          <View style={styles.caixaPrecoVisivel}>
-            <Text
-              style={[
-                styles.textoPrecoVisivel,
-                destaqueEstado === 'erro' && styles.textoPrecoErro,
-              ]}
-            >
-              {skin.precoFormatado || 'R$ --'}
-            </Text>
-          </View>
-        )}
-      </View>
+      <Text
+        style={[
+          styles.preco,
+          ocultarPreco && styles.precoOculto,
+          !ocultarPreco && destaqueEstado === 'acerto' && styles.precoAcerto,
+          !ocultarPreco && destaqueEstado === 'erro' && styles.precoErro,
+        ]}
+      >
+        {ocultarPreco ? '???' : skin.precoFormatado || 'R$ --'}
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.branco,
     borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderLeftWidth: 5,
-    borderRadius: 8,
+    borderColor: CORES.borda,
+    borderRadius: 10,
     padding: 12,
+    alignItems: 'center',
   },
   cardAcerto: {
-    borderColor: '#059669',
-    backgroundColor: '#ECFDF5',
+    borderColor: CORES.sucesso,
+    borderWidth: 2,
   },
   cardErro: {
-    borderColor: '#EF4444',
-    backgroundColor: '#FEF2F2',
-  },
-  linhaTopo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  textoEtiqueta: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
-  },
-  containerImagem: {
-    backgroundColor: '#EBF4FC',
-    borderRadius: 6,
-    height: 110,
-    width: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
+    borderColor: CORES.erro,
+    borderWidth: 2,
   },
   imagem: {
-    width: 140,
-    height: 95,
+    width: '100%',
+    height: 92,
+    marginBottom: 8,
   },
   semImagem: {
-    width: 140,
-    height: 95,
-    justifyContent: 'center',
-    alignItems: 'center',
+    fontSize: 13,
+    color: CORES.textoSecundario,
+    marginVertical: 36,
   },
-  textoSemImagem: {
-    color: '#2B6CB0',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  infoSkin: {
-    alignItems: 'center',
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  nomeSkin: {
-    color: '#1E3A5F',
+  nome: {
     fontSize: 15,
     fontWeight: 'bold',
+    color: CORES.texto,
     textAlign: 'center',
+    marginBottom: 6,
   },
-  wearSkin: {
-    color: '#2B6CB0',
-    fontSize: 12,
-    marginTop: 2,
-    textAlign: 'center',
-  },
-  areaPreco: {
-    marginTop: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  caixaPrecoOculto: {
-    backgroundColor: '#FFF3E8',
-    borderWidth: 1,
-    borderColor: '#F58220',
-    borderRadius: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  textoPrecoOculto: {
-    color: '#C95F08',
-    fontSize: 20,
+  preco: {
+    fontSize: 19,
     fontWeight: 'bold',
-    letterSpacing: 3,
+    color: CORES.azulPrincipal,
   },
-  caixaPrecoVisivel: {
-    paddingVertical: 6,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  textoPrecoVisivel: {
-    color: '#059669',
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  textoPrecoErro: {
-    color: '#EF4444',
-  },
+  precoOculto: { color: CORES.aviso },
+  precoAcerto: { color: CORES.sucesso },
+  precoErro: { color: CORES.erro },
 });

@@ -1,317 +1,191 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  StyleSheet,
-  Text,
-  View,
-  TextInput,
-  TouchableOpacity,
-  FlatList,
-  ActivityIndicator,
-  Modal,
-  Image,
-  ScrollView,
+  StyleSheet, Text, View, TextInput, TouchableOpacity,
+  FlatList, ActivityIndicator, Modal, Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
 import CaseCard from '../components/CaseCard';
 import RouletteItem from '../components/RouletteItem';
-import {
-  obterPrecoSkin,
-  obterMoedaSelecionada,
-  formatarPrecoMoeda,
-  converterValorMoeda,
-} from '../services/priceService';
+import { CORES } from '../constants/cs2Theme';
+import { obterMoedaSelecionada, obterPrecoSkin, formatarPrecoMoeda } from '../services/priceService';
 
-// Endereço oficial da API ByMykel CSGO-API com todas as caixas do jogo
-const URL_API_CRATES =
-  'https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/crates.json';
+const URL_API_CRATES = 'https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/crates.json';
+const STORAGE_KEY_INVENTARIO = '@inventario_skins';
+const LARGURA_CARD = 120;
+const PASSO_ROLETA = LARGURA_CARD + 8;
+const INDICE_VENCEDOR = 36;
+const TOTAL_ITENS_ROLETA = 45;
 
-// Largura fixa de cada card na esteira da roleta (em pixels)
-const LARGURA_CARD_ROLETA = 130;
-const MARGEM_CARD_ROLETA = 8;
-const PASSO_ROLETA = LARGURA_CARD_ROLETA + MARGEM_CARD_ROLETA;
-
-// Posição fixa do item vencedor na esteira (índice 38 de 50 itens)
-const INDICE_VENCEDOR = 38;
-const TOTAL_ITENS_ROLETA = 50;
-
-// Probabilidades oficiais do CS2 para abertura de caixas
 const PROBABILIDADES = [
-  { tipo: 'milspec', peso: 0.7992, nome: 'Mil-Spec Grade', cor: '#4b69ff' },
-  { tipo: 'restricted', peso: 0.1598, nome: 'Restricted', cor: '#8847ff' },
-  { tipo: 'classified', peso: 0.0320, nome: 'Classified', cor: '#d32ce6' },
-  { tipo: 'covert', peso: 0.0064, nome: 'Covert', cor: '#eb4b4b' },
-  { tipo: 'special', peso: 0.0026, nome: '★ Special Rare Item', cor: '#ffd700' },
+  { tipo: 'mil-spec', peso: 0.7992 },
+  { tipo: 'restricted', peso: 0.1598 },
+  { tipo: 'classified', peso: 0.032 },
+  { tipo: 'covert', peso: 0.0064 },
+  { tipo: 'special', peso: 0.0026 },
 ];
 
+const limparTexto = (t) => (t || '').replace(/[\u2605\u2122]/g, '').trim();
+const obterCorRaridade = (item) =>
+  item?.rarity?.color || CORES.raridades?.[item?.rarity?.name] || CORES.azulPrincipal;
+
 export default function CaixasScreen() {
-  // Lista de caixas carregadas da API
   const [caixas, setCaixas] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  // Filtros da tela inicial de caixas
+  const [erro, setErro] = useState(null);
   const [busca, setBusca] = useState('');
-  const [somenteArmas, setSomenteArmas] = useState(true);
-
-  // Estado da caixa atualmente selecionada para abertura (null = lista de caixas)
   const [caixaSelecionada, setCaixaSelecionada] = useState(null);
-
-  // Estados da esteira da roleta
   const [itensRoleta, setItensRoleta] = useState([]);
   const [isSpinning, setIsSpinning] = useState(false);
-  const [larguraViewport, setLarguraViewport] = useState(360);
+  const [larguraViewport, setLarguraViewport] = useState(320);
   const [indiceDestacado, setIndiceDestacado] = useState(null);
-
-  // Estados do resultado e modal de revelação da skin ganha
   const [skinGanha, setSkinGanha] = useState(null);
-  const [dadosPreco, setDadosPreco] = useState(null);
+  const [precoFormatado, setPrecoFormatado] = useState('');
   const [buscandoPreco, setBuscandoPreco] = useState(false);
-  const [modalRevelacaoAberto, setModalRevelacaoAberto] = useState(false);
+  const [modalVisivel, setModalVisivel] = useState(false);
   const [moedaAtual, setMoedaAtual] = useState('USD');
 
-  // Aba selecionada na visualização de conteúdo da caixa ('todas' ou 'raras')
-  const [abaConteudo, setAbaConteudo] = useState('todas');
-
-  // Referência do FlatList da esteira para controle de scroll
   const roletaRef = useRef(null);
-  // Referência para guardar o identificador do setInterval da animação
   const timerAnimacaoRef = useRef(null);
-  // Referência da skin ativa mais recente e fila para serializar gravações no inventário
-  const skinAtivaIdRef = useRef(null);
-  const filaInventarioRef = useRef(Promise.resolve());
+  const timerModalRef = useRef(null);
+  const sorteioAtivoRef = useRef(null);
 
-  // 1. Carrega todas as caixas da API do CS2
+  const limparTimers = () => {
+    if (timerAnimacaoRef.current) clearInterval(timerAnimacaoRef.current);
+    if (timerModalRef.current) clearTimeout(timerModalRef.current);
+    timerAnimacaoRef.current = null;
+    timerModalRef.current = null;
+  };
+
   const carregarCaixas = () => {
     setIsLoading(true);
-    setError(null);
-
+    setErro(null);
     fetch(URL_API_CRATES)
-      .then((resposta) => {
-        if (!resposta.ok) {
-          throw new Error('Falha ao conectar com a API de caixas do CS2.');
-        }
-        return resposta.json();
+      .then((res) => {
+        if (!res.ok) throw new Error('Falha ao carregar caixas.');
+        return res.json();
       })
-      .then((dados) => {
-        // Filtra itens que possuem conteúdo de skins
-        const caixasComSkins = dados.filter(
-          (c) => c.contains && c.contains.length > 0
-        );
-        setCaixas(caixasComSkins);
-      })
-      .catch((err) => {
-        setError(err.message);
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
+      .then((dados) => setCaixas(dados.filter((c) => c.contains?.length > 0)))
+      .catch((err) => setErro(err.message))
+      .finally(() => setIsLoading(false));
   };
 
   useEffect(() => {
     carregarCaixas();
-    obterMoedaSelecionada().then((moeda) => {
-      setMoedaAtual(moeda);
-    });
-
-    // Limpeza de timers ao desmontar o componente (Seção 4.4 do Tutorial)
-    return () => {
-      if (timerAnimacaoRef.current) {
-        clearInterval(timerAnimacaoRef.current);
-      }
-    };
+    obterMoedaSelecionada().then(setMoedaAtual);
+    return limparTimers;
   }, []);
 
-  // Recarrega a moeda ativa sempre que a tela de caixas ganha foco
-  useFocusEffect(
-    useCallback(() => {
-      obterMoedaSelecionada().then((moeda) => {
-        setMoedaAtual(moeda);
-      });
-    }, [])
-  );
+  useFocusEffect(useCallback(() => { obterMoedaSelecionada().then(setMoedaAtual); }, []));
 
-  // 2. Monta uma esteira inicial para a caixa selecionada
   useEffect(() => {
-    if (caixaSelecionada) {
-      prepararEsteiraInicial(caixaSelecionada);
-    }
+    const skins = caixaSelecionada?.contains || [];
+    if (!caixaSelecionada || skins.length === 0) return;
+    setItensRoleta(
+      Array.from({ length: TOTAL_ITENS_ROLETA }, (_, i) => {
+        const s = skins[Math.floor(Math.random() * skins.length)];
+        return { ...s, idUnico: `preview-${i}-${s.id}` };
+      })
+    );
+    setIndiceDestacado(null);
+    roletaRef.current?.scrollToOffset({ offset: 0, animated: false });
   }, [caixaSelecionada]);
 
-  // Gera uma esteira de visualização estática antes de girar
-  const prepararEsteiraInicial = (caixa) => {
-    const skinsDisponiveis = caixa.contains || [];
-    if (skinsDisponiveis.length === 0) return;
-
-    const esteira = [];
-    for (let i = 0; i < TOTAL_ITENS_ROLETA; i++) {
-      const skinAleatoria =
-        skinsDisponiveis[Math.floor(Math.random() * skinsDisponiveis.length)];
-      esteira.push({
-        ...skinAleatoria,
-        idUnico: `preview-${i}-${skinAleatoria.id}`,
-      });
-    }
-    setItensRoleta(esteira);
-    setIndiceDestacado(null);
-    if (roletaRef.current) {
-      roletaRef.current.scrollToOffset({ offset: 0, animated: false });
-    }
-  };
-
-  // 3. Mecanismo de Sorteio com as probabilidades oficiais do CS2
   const sortearSkin = (caixa) => {
     const rand = Math.random();
     let acumulado = 0;
-    let raridadeSorteada = PROBABILIDADES[0];
-
-    for (let i = 0; i < PROBABILIDADES.length; i++) {
-      acumulado += PROBABILIDADES[i].peso;
+    let tipoSorteado = PROBABILIDADES[0].tipo;
+    for (const prob of PROBABILIDADES) {
+      acumulado += prob.peso;
       if (rand <= acumulado) {
-        raridadeSorteada = PROBABILIDADES[i];
+        tipoSorteado = prob.tipo;
         break;
       }
     }
+    const raras = caixa.contains_rare || [];
+    const skins = caixa.contains || [];
+    const ehEspecial = tipoSorteado === 'special' && raras.length > 0;
+    const candidatas = ehEspecial
+      ? raras
+      : skins.filter((s) => (s.rarity?.name || '').toLowerCase().includes(tipoSorteado));
+    const pool = candidatas.length > 0 ? candidatas : skins;
+    const skin = pool[Math.floor(Math.random() * pool.length)];
 
-    let skinEscolhida = null;
-    let isFacaOuLuva = false;
-
-    // Caso caia em Item Especial Raro (Faca / Luva)
-    if (
-      raridadeSorteada.tipo === 'special' &&
-      caixa.contains_rare &&
-      caixa.contains_rare.length > 0
-    ) {
-      const raras = caixa.contains_rare;
-      skinEscolhida = raras[Math.floor(Math.random() * raras.length)];
-      isFacaOuLuva = true;
-    } else {
-      // Filtra as skins normais da caixa que batem com a raridade sorteada
-      const candidatas = (caixa.contains || []).filter((s) => {
-        const nomeRaridade = (s.rarity?.name || '').toLowerCase();
-        if (raridadeSorteada.tipo === 'milspec') return nomeRaridade.includes('mil-spec');
-        if (raridadeSorteada.tipo === 'restricted') return nomeRaridade.includes('restricted');
-        if (raridadeSorteada.tipo === 'classified') return nomeRaridade.includes('classified');
-        if (raridadeSorteada.tipo === 'covert') return nomeRaridade.includes('covert');
-        return false;
-      });
-
-      if (candidatas.length > 0) {
-        skinEscolhida = candidatas[Math.floor(Math.random() * candidatas.length)];
-      } else {
-        // Fallback caso a caixa não tenha essa raridade específica
-        const todas = caixa.contains || [];
-        skinEscolhida = todas[Math.floor(Math.random() * todas.length)];
-      }
-    }
-
-    // Sorteia condição de uso (wear) e float
     const floatValor = Number((Math.random() * 0.999 + 0.001).toFixed(6));
-    let wearNome = 'Field-Tested';
+    let wearNome = 'Battle-Scarred';
     if (floatValor < 0.07) wearNome = 'Factory New';
     else if (floatValor < 0.15) wearNome = 'Minimal Wear';
     else if (floatValor < 0.38) wearNome = 'Field-Tested';
     else if (floatValor < 0.45) wearNome = 'Well-Worn';
-    else wearNome = 'Battle-Scarred';
 
-    // 10% de chance de ser StatTrak™
-    const isStatTrak = Math.random() < 0.1;
-
-    return {
-      skin: skinEscolhida,
-      floatValor,
-      wearNome,
-      isStatTrak,
-      isFacaOuLuva,
-    };
+    return { skin, floatValor, wearNome, isStatTrak: Math.random() < 0.1, isFacaOuLuva: ehEspecial };
   };
 
-  // 4. Executa a Animação da Roleta do CS2
+  const salvarNoInventario = async (premio, precoInfo) => {
+    try {
+      const dados = await AsyncStorage.getItem(STORAGE_KEY_INVENTARIO);
+      const lista = dados ? JSON.parse(dados) : [];
+      const inventario = Array.isArray(lista) ? lista : [];
+      const valorUsd = typeof precoInfo?.valorUsd === 'number' ? precoInfo.valorUsd : 0;
+      const valorNumerico = typeof precoInfo?.valorNumerico === 'number' ? precoInfo.valorNumerico : valorUsd;
+      const moeda = precoInfo?.moeda || moedaAtual || 'USD';
+      const preco = precoInfo?.precoFormatado || formatarPrecoMoeda(valorNumerico, moeda);
+
+      inventario.unshift({
+        idInventario: premio.idInventario,
+        idUnico: premio.idInventario,
+        id: premio.id,
+        name: premio.name,
+        image: premio.image,
+        rarity: premio.rarity,
+        corRaridade: obterCorRaridade(premio),
+        precoUSD: valorUsd,
+        valorUsd,
+        valorNumerico,
+        moeda,
+        preco,
+        floatValor: premio.floatValor,
+        wearNome: premio.wearNome,
+        isStatTrak: premio.isStatTrak,
+        isFacaOuLuva: premio.isFacaOuLuva,
+        collections: premio.collections || [],
+        dataObtencao: new Date().toLocaleDateString('pt-BR'),
+        timestamp: Date.now(),
+        origem: 'caixa',
+      });
+      await AsyncStorage.setItem(STORAGE_KEY_INVENTARIO, JSON.stringify(inventario));
+    } catch (e) {
+      // Mantém execução segura se o AsyncStorage falhar
+    }
+  };
+
   const iniciarAbertura = () => {
     if (isSpinning || !caixaSelecionada) return;
-
-    // Reseta estados anteriores
+    limparTimers();
     setIsSpinning(true);
     setIndiceDestacado(null);
     setSkinGanha(null);
-    setDadosPreco(null);
-    skinAtivaIdRef.current = null;
+    setPrecoFormatado('');
 
-    // Sorteia a skin vencedora
     const resultado = sortearSkin(caixaSelecionada);
-    const skinVencedora = resultado.skin;
-
-    // Monta a esteira de 50 skins colocando a vencedora no índice 38
     const skinsBase = caixaSelecionada.contains || [];
-    const novaEsteira = [];
+    setItensRoleta(
+      Array.from({ length: TOTAL_ITENS_ROLETA }, (_, i) => {
+        const s = i === INDICE_VENCEDOR ? resultado.skin : skinsBase[Math.floor(Math.random() * skinsBase.length)];
+        return { ...s, idUnico: `spin-${i}-${s?.id || i}` };
+      })
+    );
+    roletaRef.current?.scrollToOffset({ offset: 0, animated: false });
 
-    for (let i = 0; i < TOTAL_ITENS_ROLETA; i++) {
-      if (i === INDICE_VENCEDOR) {
-        novaEsteira.push({
-          ...skinVencedora,
-          idUnico: `vencedor-${i}-${skinVencedora.id}`,
-        });
-      } else {
-        // Skins aleatórias com chance de incluir itens raros para criar suspense
-        let itemSorteado;
-        if (
-          Math.random() < 0.05 &&
-          caixaSelecionada.contains_rare &&
-          caixaSelecionada.contains_rare.length > 0
-        ) {
-          const raras = caixaSelecionada.contains_rare;
-          itemSorteado = raras[Math.floor(Math.random() * raras.length)];
-        } else {
-          itemSorteado = skinsBase[Math.floor(Math.random() * skinsBase.length)];
-        }
-        novaEsteira.push({
-          ...itemSorteado,
-          idUnico: `esteira-${i}-${itemSorteado?.id || i}`,
-        });
-      }
-    }
-
-    setItensRoleta(novaEsteira);
-
-    // Reposiciona o FlatList no início
-    if (roletaRef.current) {
-      roletaRef.current.scrollToOffset({ offset: 0, animated: false });
-    }
-
-    // Calcula o deslocamento exato para centralizar o item vencedor sob a agulha
-    // Adiciona uma pequena variação aleatória (-25 a +25px) para não parar sempre milimetricamente igual
-    const variacao = (Math.random() - 0.5) * 50;
-    const offsetCentro =
-      INDICE_VENCEDOR * PASSO_ROLETA -
-      larguraViewport / 2 +
-      LARGURA_CARD_ROLETA / 2 +
-      variacao;
-
-    const duracaoTotal = 4600; // 4.6 segundos de rotação
-    const tempoInicio = Date.now();
-
-    // Inicia a animação de desaceleração suave (Ease-Out Cubic) via setInterval
-    if (timerAnimacaoRef.current) {
-      clearInterval(timerAnimacaoRef.current);
-    }
+    const variacao = (Math.random() - 0.5) * 30;
+    const offsetFinal = 12 + INDICE_VENCEDOR * PASSO_ROLETA + 4 + LARGURA_CARD / 2 - larguraViewport / 2 + variacao;
+    const inicio = Date.now();
 
     timerAnimacaoRef.current = setInterval(() => {
-      const agora = Date.now();
-      const tempoPassado = agora - tempoInicio;
-      const progresso = Math.min(1, tempoPassado / duracaoTotal);
-
-      // Curva cúbica: desacelera realisticamente imitando o jogo
+      const progresso = Math.min(1, (Date.now() - inicio) / 4200);
       const ease = 1 - Math.pow(1 - progresso, 3);
-      const deslocamentoAtual = offsetCentro * ease;
-
-      if (roletaRef.current) {
-        roletaRef.current.scrollToOffset({
-          offset: deslocamentoAtual,
-          animated: false,
-        });
-      }
+      roletaRef.current?.scrollToOffset({ offset: Math.max(0, offsetFinal * ease), animated: false });
 
       if (progresso >= 1) {
         clearInterval(timerAnimacaoRef.current);
@@ -319,492 +193,156 @@ export default function CaixasScreen() {
         setIsSpinning(false);
         setIndiceDestacado(INDICE_VENCEDOR);
 
-        // Prepara os dados completos do prêmio com identificador único
-        const idUnico = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-        const premioCompleto = {
-          ...skinVencedora,
-          idUnico,
-          idInventario: idUnico,
-          floatValor: resultado.floatValor,
-          wearNome: resultado.wearNome,
-          isStatTrak: resultado.isStatTrak,
-          isFacaOuLuva: resultado.isFacaOuLuva,
-          nomeCaixaOrigem: caixaSelecionada.name,
-        };
-        skinAtivaIdRef.current = idUnico;
-        setSkinGanha(premioCompleto);
+        const idInventario = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const premio = { ...resultado.skin, ...resultado, idInventario };
+        sorteioAtivoRef.current = idInventario;
+        setSkinGanha(premio);
+        setBuscandoPreco(true);
 
-        // Salva automaticamente no inventário antes mesmo do preço carregar
-        salvarSkinAutomaticaNoInventario(premioCompleto);
+        obterPrecoSkin(premio.name, premio.rarity?.name || 'Mil-Spec Grade', premio.wearNome, premio.isStatTrak, moedaAtual)
+          .catch(() => ({
+            precoFormatado: formatarPrecoMoeda(0, moedaAtual),
+            valorNumerico: 0,
+            valorUsd: 0,
+            moeda: moedaAtual,
+          }))
+          .then((precoInfo) => {
+            if (sorteioAtivoRef.current === idInventario) {
+              setPrecoFormatado(precoInfo.precoFormatado);
+              setBuscandoPreco(false);
+            }
+            salvarNoInventario(premio, precoInfo);
+          });
 
-        // Dispara busca do preço via API PriceEmpire (com fallback) e atualiza a entrada salva
-        buscarPrecoItem(premioCompleto);
-
-        // Pequena pausa dramática de 700ms antes de abrir o modal revelador
-        setTimeout(() => {
-          setModalRevelacaoAberto(true);
-        }, 700);
+        timerModalRef.current = setTimeout(() => setModalVisivel(true), 500);
       }
     }, 16);
   };
 
-  // 5. Consulta de Preço via API PriceEmpire
-  const buscarPrecoItem = (item) => {
-    setBuscandoPreco(true);
-    setDadosPreco(null);
-
-    const raridade = item.rarity?.name || 'Mil-Spec Grade';
-    obterPrecoSkin(item.name, raridade, item.wearNome, item.isStatTrak)
-      .then((resposta) => {
-        if (skinAtivaIdRef.current === item.idUnico) {
-          setDadosPreco(resposta);
-          if (resposta?.moeda) {
-            setMoedaAtual(resposta.moeda);
-          }
-        }
-        atualizarPrecoSkinNoInventario(item.idUnico, resposta);
-      })
-      .catch(() => {
-        const valorUsdFallback = 15.0;
-        const valorConvertido = converterValorMoeda(
-          valorUsdFallback,
-          'USD',
-          moedaAtual
-        );
-        const precoFallback = {
-          precoFormatado: formatarPrecoMoeda(valorConvertido, moedaAtual),
-          fonte: 'Mercado CS2 (Estimado)',
-          valorNumerico: valorConvertido,
-          valorUsd: valorUsdFallback,
-          moeda: moedaAtual,
-        };
-        if (skinAtivaIdRef.current === item.idUnico) {
-          setDadosPreco(precoFallback);
-        }
-        atualizarPrecoSkinNoInventario(item.idUnico, precoFallback);
-      })
-      .finally(() => {
-        if (skinAtivaIdRef.current === item.idUnico) {
-          setBuscandoPreco(false);
-        }
-      });
-  };
-
-  // Serializa leituras/escritas em @inventario_skins para evitar sobrescrita em aberturas rápidas
-  const enfileirarOperacaoInventario = (operacao) => {
-    filaInventarioRef.current = filaInventarioRef.current
-      .then(operacao)
-      .catch((err) => {
-        console.error('Erro ao atualizar o inventário:', err);
-      });
-    return filaInventarioRef.current;
-  };
-
-  // 6. Salvar skin automaticamente no AsyncStorage (Inventário) ao revelar
-  const salvarSkinAutomaticaNoInventario = (item) => {
-    if (!item?.idUnico) return;
-
-    const moedaInicial = moedaAtual || 'USD';
-    const itemParaSalvar = {
-      ...item,
-      idUnico: item.idUnico,
-      idInventario: item.idInventario || item.idUnico,
-      dataObtencao: new Date().toLocaleDateString('pt-BR'),
-      preco: formatarPrecoMoeda(0, moedaInicial),
-      valorNumerico: 0,
-      valorUsd: 0,
-      moeda: moedaInicial,
-    };
-
-    enfileirarOperacaoInventario(async () => {
-      const dados = await AsyncStorage.getItem('@inventario_skins');
-      const listaBruta = dados ? JSON.parse(dados) : [];
-      const listaAtual = Array.isArray(listaBruta) ? listaBruta : [];
-
-      if (listaAtual.some((entry) => entry.idUnico === item.idUnico)) {
-        return;
-      }
-
-      listaAtual.unshift(itemParaSalvar);
-      await AsyncStorage.setItem('@inventario_skins', JSON.stringify(listaAtual));
-    });
-  };
-
-  // Atualiza o preço real da skin já salva no inventário usando seu idUnico
-  const atualizarPrecoSkinNoInventario = (idUnico, precoDados) => {
-    if (!idUnico || !precoDados) return;
-
-    const moedaItem = precoDados.moeda || moedaAtual || 'USD';
-    const valorUsdItem =
-      typeof precoDados.valorUsd === 'number'
-        ? precoDados.valorUsd
-        : typeof precoDados.valorNumerico === 'number'
-        ? converterValorMoeda(precoDados.valorNumerico, moedaItem, 'USD')
-        : 15.0;
-    const valorNumericoItem =
-      typeof precoDados.valorNumerico === 'number'
-        ? precoDados.valorNumerico
-        : converterValorMoeda(valorUsdItem, 'USD', moedaItem);
-    const precoItem =
-      precoDados.precoFormatado ||
-      formatarPrecoMoeda(valorNumericoItem, moedaItem);
-
-    enfileirarOperacaoInventario(async () => {
-      const dados = await AsyncStorage.getItem('@inventario_skins');
-      const listaBruta = dados ? JSON.parse(dados) : [];
-      if (!Array.isArray(listaBruta)) return;
-
-      const indice = listaBruta.findIndex((entry) => entry.idUnico === idUnico);
-      if (indice === -1) return;
-
-      listaBruta[indice] = {
-        ...listaBruta[indice],
-        preco: precoItem,
-        valorNumerico: valorNumericoItem,
-        valorUsd: valorUsdItem,
-        moeda: moedaItem,
-      };
-
-      await AsyncStorage.setItem('@inventario_skins', JSON.stringify(listaBruta));
-    });
-  };
-
-  // Filtragem das caixas na lista principal
-  const caixasFiltradas = caixas.filter((item) => {
-    const nome = (item.name || '').toLowerCase();
-    const termo = busca.trim().toLowerCase();
-    const bateTexto = termo === '' || nome.includes(termo);
-
-    if (somenteArmas) {
-      const ehArma =
-        item.type === 'Case' ||
-        (item.name && item.name.toLowerCase().includes('case'));
-      return bateTexto && ehArma;
-    }
-
-    return bateTexto;
-  });
-
-  // Tela de carregamento inicial
   if (isLoading) {
     return (
       <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.centralizado}>
-        <ActivityIndicator size="large" color="#F58220" />
-        <Text style={styles.textoCarregando}>Carregando caixas do CS2...</Text>
+        <ActivityIndicator size="large" color={CORES.azulPrincipal} />
+        <Text style={styles.textoSecundario}>Carregando caixas...</Text>
       </SafeAreaView>
     );
   }
 
-  // Tela de erro de conexão
-  if (error) {
+  if (erro) {
     return (
       <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.centralizado}>
-        <Text style={styles.textoErro}>{error}</Text>
-        <TouchableOpacity
-          style={styles.botaoRecarregar}
-          activeOpacity={0.7}
-          onPress={carregarCaixas}
-        >
-          <Text style={styles.textoBotaoRecarregar}>Tentar novamente</Text>
+        <Text style={styles.textoErro}>{erro}</Text>
+        <TouchableOpacity style={styles.botaoAzul} onPress={carregarCaixas}>
+          <Text style={styles.textoBotaoAzul}>Tentar novamente</Text>
         </TouchableOpacity>
       </SafeAreaView>
     );
   }
 
-  // =========================================================================
-  // MODO 1: DETALHES E ABERTURA DA CAIXA SELECIONADA
-  // =========================================================================
   if (caixaSelecionada) {
-    const skinsCaixa = caixaSelecionada.contains || [];
-    const rarasCaixa = caixaSelecionada.contains_rare || [];
-    const listaExibicao = abaConteudo === 'raras' ? rarasCaixa : skinsCaixa;
-
-    return (
-      <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.container}>
-        <ScrollView style={styles.scrollAbertura} showsVerticalScrollIndicator={false}>
-          {/* Botão de navegação superior para retornar à lista de caixas */}
+    const cabecalhoCaixa = (
+      <View>
+        <View style={styles.topoCaixa}>
           <TouchableOpacity
             style={styles.botaoVoltar}
-            activeOpacity={0.7}
             onPress={() => {
-              if (timerAnimacaoRef.current) {
-                clearInterval(timerAnimacaoRef.current);
-              }
+              limparTimers();
               setIsSpinning(false);
+              setModalVisivel(false);
               setCaixaSelecionada(null);
             }}
           >
-            <MaterialIcons name="arrow-back" size={20} color="#1E4C8A" />
-            <Text style={styles.textoBotaoVoltar}>Voltar para todas as caixas</Text>
+            <Text style={styles.textoVoltar}>Voltar</Text>
           </TouchableOpacity>
+          <Text style={styles.nomeCaixa} numberOfLines={2}>{limparTexto(caixaSelecionada.name)}</Text>
+        </View>
 
-          {/* Cabeçalho da Caixa Selecionada */}
-          <View style={styles.cabecalhoCaixa}>
-            {caixaSelecionada.image && (
-              <Image
-                source={{ uri: caixaSelecionada.image }}
-                style={styles.imagemCaixaTopo}
-                resizeMode="contain"
-              />
-            )}
-            <View style={styles.infoCaixaTopo}>
-              <Text style={styles.nomeCaixaTopo}>{caixaSelecionada.name}</Text>
-              <Text style={styles.subtituloCaixaTopo}>
-                {skinsCaixa.length} skins disponíveis + itens raros especiais
-              </Text>
-            </View>
-          </View>
-
-          {/* CÂMARA DA ROLETA (MECANISMO DO JOGO) */}
-          <View
-            style={styles.containerRoleta}
-            onLayout={(event) => {
-              const { width } = event.nativeEvent.layout;
-              if (width > 0) setLarguraViewport(width);
-            }}
-          >
-            <View style={styles.topoRoleta}>
-              <Text style={styles.tituloRoleta}>SIMULADOR DE ABERTURA</Text>
-              <Text style={styles.subtituloRoleta}>
-                {isSpinning ? 'Girando a caixa...' : 'Clique abaixo para abrir'}
-              </Text>
-            </View>
-
-            {/* Marcador Central (Agulha Dourada Superior e Inferior) */}
-            <View style={styles.areaEsteira}>
-              <View style={styles.marcadorSuperior} />
-              <View style={styles.linhaCentral} />
-              <View style={styles.marcadorInferior} />
-
-              {/* Esteira Horizontal de Skins */}
-              <FlatList
-                ref={roletaRef}
-                data={itensRoleta}
-                keyExtractor={(item, index) => item.idUnico || `${item.id}-${index}`}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                scrollEnabled={false}
-                contentContainerStyle={styles.conteudoRoleta}
-                renderItem={({ item, index }) => (
-                  <RouletteItem
-                    item={item}
-                    largura={LARGURA_CARD_ROLETA}
-                    isDestaque={indiceDestacado === index}
-                  />
-                )}
-              />
-            </View>
-
-            {/* Botão de Ação: ABRIR CAIXA */}
-            <TouchableOpacity
-              style={[styles.botaoAbrirCaixa, isSpinning && styles.botaoAbrirDesativado]}
-              activeOpacity={0.8}
-              disabled={isSpinning}
-              onPress={iniciarAbertura}
-            >
-              <MaterialIcons
-                name={isSpinning ? 'hourglass-empty' : 'vpn-key'}
-                size={22}
-                color="#0F1923"
-              />
-              <Text style={styles.textoBotaoAbrirCaixa}>
-                {isSpinning ? 'ABRINDO CAIXA...' : 'ABRIR CAIXA'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* SEÇÃO: SKINS CONTIDAS NA CAIXA */}
-          <View style={styles.secaoConteudo}>
-            <View style={styles.cabecalhoSecao}>
-              <Text style={styles.tituloSecao}>Conteúdo da Caixa</Text>
-              <View style={styles.abasConteudo}>
-                <TouchableOpacity
-                  style={[
-                    styles.abaItem,
-                    abaConteudo === 'todas' && styles.abaItemAtiva,
-                  ]}
-                  activeOpacity={0.7}
-                  onPress={() => setAbaConteudo('todas')}
-                >
-                  <Text
-                    style={[
-                      styles.textoAba,
-                      abaConteudo === 'todas' && styles.textoAbaAtiva,
-                    ]}
-                  >
-                    Skins ({skinsCaixa.length})
-                  </Text>
-                </TouchableOpacity>
-
-                {rarasCaixa.length > 0 && (
-                  <TouchableOpacity
-                    style={[
-                      styles.abaItem,
-                      abaConteudo === 'raras' && styles.abaItemAtiva,
-                    ]}
-                    activeOpacity={0.7}
-                    onPress={() => setAbaConteudo('raras')}
-                  >
-                    <Text
-                      style={[
-                        styles.textoAba,
-                        abaConteudo === 'raras' && styles.textoAbaAtiva,
-                      ]}
-                    >
-                      ★ Especiais Raras ({rarasCaixa.length})
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-
-            {/* Grade com todas as skins da caixa */}
-            <View style={styles.gradeSkins}>
-              {listaExibicao.map((item, index) => {
-                const corRaridade = item.rarity?.color || '#2B6CB0';
-                return (
-                  <View
-                    key={`${item.id}-${index}`}
-                    style={[styles.cardSkinGrade, { borderLeftColor: corRaridade }]}
-                  >
-                    {item.image ? (
-                      <Image
-                        source={{ uri: item.image }}
-                        style={styles.imagemSkinGrade}
-                        resizeMode="contain"
-                      />
-                    ) : (
-                      <View style={styles.semImagemGrade}>
-                        <Text style={styles.textoSemImagemGrade}>CS2</Text>
-                      </View>
-                    )}
-                    <View style={styles.infoSkinGrade}>
-                      <Text style={styles.nomeSkinGrade} numberOfLines={2}>
-                        {item.name}
-                      </Text>
-                      <Text
-                        style={[styles.raridadeSkinGrade, { color: corRaridade }]}
-                        numberOfLines={1}
-                      >
-                        {item.rarity?.name || 'Raridade Oficial'}
-                      </Text>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-        </ScrollView>
-
-        {/* MODAL DE REVELAÇÃO DA SKIN (ANIMAÇÃO AO RECEBER O ITEM) */}
-        <Modal
-          visible={modalRevelacaoAberto}
-          animationType="slide"
-          transparent
-          onRequestClose={() => setModalRevelacaoAberto(false)}
+        <View
+          style={styles.areaRoleta}
+          onLayout={(e) => e.nativeEvent.layout.width > 0 && setLarguraViewport(e.nativeEvent.layout.width)}
         >
-          <View style={styles.modalFundo}>
-            <View
-              style={[
-                styles.modalCard,
-                {
-                  borderColor:
-                    skinGanha?.rarity?.color ||
-                    (skinGanha?.isFacaOuLuva ? '#FFD700' : '#F58220'),
-                },
-              ]}
-            >
-              <Text style={styles.modalParabens}>PARABÉNS!</Text>
-              <Text style={styles.modalSubparabens}>Você abriu e recebeu:</Text>
+          <View style={styles.linhaCentral} />
+          <FlatList
+            ref={roletaRef}
+            data={itensRoleta}
+            keyExtractor={(item, index) => item.idUnico || `${item.id}-${index}`}
+            horizontal
+            scrollEnabled={false}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.conteudoRoleta}
+            renderItem={({ item, index }) => (
+              <RouletteItem item={item} largura={LARGURA_CARD} isDestaque={indiceDestacado === index} />
+            )}
+          />
+        </View>
 
-              {/* Tag StatTrak™ ou Item Especial */}
-              {skinGanha?.isStatTrak && (
-                <View style={styles.badgeStatTrak}>
-                  <Text style={styles.textoBadgeStatTrak}>StatTrak™</Text>
-                </View>
+        <TouchableOpacity
+          style={[styles.botaoAbrir, isSpinning && styles.botaoDesativado]}
+          disabled={isSpinning}
+          onPress={iniciarAbertura}
+        >
+          <Text style={styles.textoBotaoAzul}>{isSpinning ? 'Abrindo...' : 'Abrir Caixa'}</Text>
+        </TouchableOpacity>
+        <Text style={styles.tituloSecao}>Possíveis itens</Text>
+      </View>
+    );
+
+    return (
+      <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.container}>
+        <FlatList
+          data={caixaSelecionada.contains || []}
+          keyExtractor={(item, index) => `${item.id}-${index}`}
+          ListHeaderComponent={cabecalhoCaixa}
+          contentContainerStyle={styles.listaConteudo}
+          renderItem={({ item }) => (
+            <View style={styles.linhaSkin}>
+              {item.image ? (
+                <Image source={{ uri: item.image }} style={styles.imagemSkin} resizeMode="contain" />
+              ) : (
+                <Text style={styles.semImagem}>Sem imagem</Text>
               )}
-
-              {/* Imagem em Destaque da Skin Ganha */}
-              <View style={styles.modalContainerImagem}>
-                {skinGanha?.image && (
-                  <Image
-                    source={{ uri: skinGanha.image }}
-                    style={styles.modalImagem}
-                    resizeMode="contain"
-                  />
-                )}
-              </View>
-
-              {/* Informações da Skin */}
-              <Text style={styles.modalNomeSkin}>{skinGanha?.name}</Text>
-
-              <View
-                style={[
-                  styles.badgeRaridadeModal,
-                  {
-                    backgroundColor:
-                      skinGanha?.rarity?.color ||
-                      (skinGanha?.isFacaOuLuva ? '#FFD700' : '#4b69ff'),
-                  },
-                ]}
-              >
-                <Text style={styles.textoBadgeRaridadeModal}>
-                  {skinGanha?.rarity?.name || 'Item Especial Raro'}
+              <View style={styles.infoSkin}>
+                <Text style={styles.nomeSkin} numberOfLines={1}>{limparTexto(item.name)}</Text>
+                <Text style={[styles.raridadeSkin, { color: obterCorRaridade(item) }]}>
+                  {limparTexto(item.rarity?.name || 'Comum')}
                 </Text>
               </View>
+            </View>
+          )}
+        />
 
-              <Text style={styles.modalCondicao}>
-                {skinGanha?.wearNome} • Float: {skinGanha?.floatValor}
+        <Modal visible={modalVisivel} transparent animationType="fade" onRequestClose={() => setModalVisivel(false)}>
+          <View style={styles.modalFundo}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitulo}>Você ganhou</Text>
+              {skinGanha?.image ? (
+                <Image source={{ uri: skinGanha.image }} style={styles.modalImagem} resizeMode="contain" />
+              ) : (
+                <Text style={styles.semImagem}>Sem imagem</Text>
+              )}
+              <Text style={styles.modalNome}>
+                {skinGanha?.isStatTrak ? 'StatTrak ' : ''}{limparTexto(skinGanha?.name)}
               </Text>
-
-              {/* Card de Preço via API PriceEmpire */}
-              <View style={styles.boxPreco}>
-                <Text style={styles.tituloBoxPreco}>VALOR DE MERCADO</Text>
-                {buscandoPreco ? (
-                  <View style={styles.linhaCarregandoPreco}>
-                    <ActivityIndicator size="small" color="#F58220" />
-                    <Text style={styles.textoCarregandoPreco}>
-                      Consultando PriceEmpire...
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.linhaPreco}>
-                    <Text style={styles.valorPreco}>
-                      {dadosPreco?.precoFormatado || formatarPrecoMoeda(0, moedaAtual)}
-                    </Text>
-                    <Text style={styles.fontePreco}>
-                      {dadosPreco?.fonte ? `via ${dadosPreco.fonte}` : 'via PriceEmpire'}
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              <Text style={styles.textoSalvoAutomatico}>
-                Adicionada automaticamente ao inventário
+              <Text style={[styles.modalRaridade, { color: obterCorRaridade(skinGanha) }]}>
+                {limparTexto(skinGanha?.rarity?.name || 'Special Rare Item')}
               </Text>
-
-              {/* Ações do Modal */}
+              {buscandoPreco ? (
+                <ActivityIndicator size="small" color={CORES.azulPrincipal} style={styles.modalPreco} />
+              ) : (
+                <Text style={styles.modalPreco}>{precoFormatado || formatarPrecoMoeda(0, moedaAtual)}</Text>
+              )}
               <View style={styles.acoesModal}>
                 <TouchableOpacity
-                  style={styles.botaoAbrirNovamente}
-                  activeOpacity={0.7}
+                  style={styles.botaoModalPrimario}
                   onPress={() => {
-                    setModalRevelacaoAberto(false);
-                    setTimeout(() => {
-                      iniciarAbertura();
-                    }, 400);
+                    setModalVisivel(false);
+                    timerModalRef.current = setTimeout(iniciarAbertura, 300);
                   }}
                 >
-                  <MaterialIcons name="refresh" size={18} color="#0F1923" />
-                  <Text style={styles.textoBotaoAbrirNovamente}>Abrir Novamente</Text>
+                  <Text style={styles.textoBotaoAzul}>Abrir outra</Text>
                 </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.botaoFecharModal}
-                  activeOpacity={0.7}
-                  onPress={() => setModalRevelacaoAberto(false)}
-                >
-                  <Text style={styles.textoBotaoFecharModal}>Fechar</Text>
+                <TouchableOpacity style={styles.botaoModalSecundario} onPress={() => setModalVisivel(false)}>
+                  <Text style={styles.textoBotaoSecundario}>Fechar</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -814,622 +352,66 @@ export default function CaixasScreen() {
     );
   }
 
-  // =========================================================================
-  // MODO 2: LISTAGEM DE TODAS AS CAIXAS DO CS2
-  // =========================================================================
+  const termo = busca.trim().toLowerCase();
+  const caixasFiltradas = caixas.filter((c) => (termo === '' ? true : (c.name || '').toLowerCase().includes(termo)));
+
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.container}>
-      {/* Cabeçalho da tela de Caixas */}
-      <View style={styles.cabecalho}>
-        <Text style={styles.titulo}>Abertura de Caixas</Text>
-        <Text style={styles.contador}>
-          {caixasFiltradas.length}{' '}
-          {caixasFiltradas.length === 1 ? 'caixa disponível' : 'caixas disponíveis'}
-        </Text>
-      </View>
-
-      {/* Barra de Busca de Caixas */}
-      <View style={styles.barraBusca}>
-        <TextInput
-          style={styles.campoBusca}
-          value={busca}
-          onChangeText={setBusca}
-          placeholder="Buscar caixa (ex: Kilowatt, Dreams, Revolution)..."
-          placeholderTextColor="#5D79AE"
-        />
-        {busca.length > 0 && (
-          <TouchableOpacity
-            style={styles.botaoLimpar}
-            activeOpacity={0.7}
-            onPress={() => setBusca('')}
-          >
-            <Text style={styles.textoLimpar}>Limpar</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Seletor de Tipo: Caixas de Armas vs Todas as Caixas */}
-      <View style={styles.linhaFiltroTipo}>
-        <TouchableOpacity
-          style={[
-            styles.botaoFiltroTipo,
-            somenteArmas && styles.botaoFiltroTipoAtivo,
-          ]}
-          activeOpacity={0.7}
-          onPress={() => setSomenteArmas(true)}
-        >
-          <Text
-            style={[
-              styles.textoFiltroTipo,
-              somenteArmas && styles.textoFiltroTipoAtivo,
-            ]}
-          >
-            Caixas de Armas (42)
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.botaoFiltroTipo,
-            !somenteArmas && styles.botaoFiltroTipoAtivo,
-          ]}
-          activeOpacity={0.7}
-          onPress={() => setSomenteArmas(false)}
-        >
-          <Text
-            style={[
-              styles.textoFiltroTipo,
-              !somenteArmas && styles.textoFiltroTipoAtivo,
-            ]}
-          >
-            Todas as Caixas & Cápsulas
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Grade com todas as caixas */}
+      <TextInput
+        style={styles.campoBusca}
+        value={busca}
+        onChangeText={setBusca}
+        placeholder="Buscar caixa..."
+        placeholderTextColor={CORES.textoSecundario}
+      />
       <FlatList
         data={caixasFiltradas}
         keyExtractor={(item) => item.id}
         numColumns={2}
         contentContainerStyle={styles.gradeCaixas}
-        showsVerticalScrollIndicator={false}
-        renderItem={({ item }) => (
-          <CaseCard item={item} onPress={(caixa) => setCaixaSelecionada(caixa)} />
-        )}
-        ListEmptyComponent={() => (
-          <View style={styles.vazioContainer}>
-            <Text style={styles.vazioTitulo}>Nenhuma caixa encontrada.</Text>
-            <Text style={styles.vazioSubtitulo}>
-              Tente buscar por outro termo ou mude o filtro para todas as caixas.
-            </Text>
-            <TouchableOpacity
-              style={styles.botaoAcao}
-              activeOpacity={0.7}
-              onPress={() => {
-                setBusca('');
-                setSomenteArmas(true);
-              }}
-            >
-              <Text style={styles.textoBotaoAcao}>Redefinir busca</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        renderItem={({ item }) => <CaseCard item={item} onPress={setCaixaSelecionada} />}
+        ListEmptyComponent={<Text style={styles.textoVazio}>Nenhuma caixa encontrada.</Text>}
       />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  centralizado: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    padding: 20,
-  },
-  textoCarregando: {
-    color: '#1E4C8A',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginTop: 12,
-  },
-  textoErro: {
-    color: '#EF4444',
-    fontSize: 15,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  botaoRecarregar: {
-    backgroundColor: '#F58220',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  textoBotaoRecarregar: {
-    color: '#0F1923',
-    fontWeight: 'bold',
-  },
-  cabecalho: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
-  },
-  titulo: {
-    color: '#1E4C8A',
-    fontSize: 22,
-    fontWeight: 'bold',
-  },
-  contador: {
-    color: '#2B6CB0',
-    fontSize: 13,
-    marginTop: 2,
-  },
-  barraBusca: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 8,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    height: 44,
-  },
-  campoBusca: {
-    flex: 1,
-    color: '#1E3A5F',
-    fontSize: 14,
-  },
-  botaoLimpar: {
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-  },
-  textoLimpar: {
-    color: '#2B6CB0',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  linhaFiltroTipo: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    marginBottom: 8,
-    gap: 8,
-  },
-  botaoFiltroTipo: {
-    flex: 1,
-    backgroundColor: '#EBF4FC',
-    borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 6,
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-  botaoFiltroTipoAtivo: {
-    backgroundColor: '#1E4C8A',
-    borderColor: '#1E4C8A',
-  },
-  textoFiltroTipo: {
-    color: '#1E4C8A',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  textoFiltroTipoAtivo: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-  },
-  gradeCaixas: {
-    paddingHorizontal: 10,
-    paddingBottom: 24,
-  },
-  vazioContainer: {
-    alignItems: 'center',
-    padding: 30,
-    marginTop: 40,
-  },
-  vazioTitulo: {
-    color: '#1E4C8A',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  vazioSubtitulo: {
-    color: '#2B6CB0',
-    fontSize: 14,
-    textAlign: 'center',
-    marginTop: 6,
-    marginBottom: 16,
-  },
-  botaoAcao: {
-    backgroundColor: '#F58220',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  textoBotaoAcao: {
-    color: '#0F1923',
-    fontWeight: 'bold',
-  },
-
-  // Estilos da Tela de Abertura da Caixa Selecionada
-  scrollAbertura: {
-    flex: 1,
-  },
-  botaoVoltar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    gap: 6,
-  },
-  textoBotaoVoltar: {
-    color: '#1E4C8A',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  cabecalhoCaixa: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EBF4FC',
-    marginHorizontal: 16,
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#68A3E5',
-  },
-  imagemCaixaTopo: {
-    width: 65,
-    height: 60,
-  },
-  infoCaixaTopo: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  nomeCaixaTopo: {
-    color: '#1E3A5F',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  subtituloCaixaTopo: {
-    color: '#2B6CB0',
-    fontSize: 12,
-    marginTop: 2,
-  },
-
-  // Câmara da Roleta
-  containerRoleta: {
-    backgroundColor: '#0F172A',
-    marginHorizontal: 16,
-    marginTop: 14,
-    borderRadius: 10,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  topoRoleta: {
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  tituloRoleta: {
-    color: '#F58220',
-    fontSize: 13,
-    fontWeight: 'bold',
-    letterSpacing: 1,
-  },
-  subtituloRoleta: {
-    color: '#94A3B8',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  areaEsteira: {
-    height: 160,
-    backgroundColor: '#020617',
-    borderRadius: 8,
-    overflow: 'hidden',
-    position: 'relative',
-    justifyContent: 'center',
-  },
-  marcadorSuperior: {
-    position: 'absolute',
-    top: 0,
-    alignSelf: 'center',
-    width: 0,
-    height: 0,
-    borderLeftWidth: 10,
-    borderRightWidth: 10,
-    borderTopWidth: 14,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderTopColor: '#F58220',
-    zIndex: 10,
-  },
-  linhaCentral: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    alignSelf: 'center',
-    width: 2,
-    backgroundColor: '#F58220',
-    opacity: 0.8,
-    zIndex: 9,
-  },
-  marcadorInferior: {
-    position: 'absolute',
-    bottom: 0,
-    alignSelf: 'center',
-    width: 0,
-    height: 0,
-    borderLeftWidth: 10,
-    borderRightWidth: 10,
-    borderBottomWidth: 14,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderBottomColor: '#F58220',
-    zIndex: 10,
-  },
-  conteudoRoleta: {
-    alignItems: 'center',
-    paddingHorizontal: 8,
-  },
-  botaoAbrirCaixa: {
-    backgroundColor: '#F58220',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    paddingVertical: 14,
-    marginTop: 14,
-    gap: 8,
-  },
-  botaoAbrirDesativado: {
-    opacity: 0.6,
-  },
-  textoBotaoAbrirCaixa: {
-    color: '#0F1923',
-    fontSize: 16,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
-  },
-
-  // Seção de Conteúdo da Caixa
-  secaoConteudo: {
-    paddingHorizontal: 16,
-    paddingTop: 18,
-    paddingBottom: 40,
-  },
-  cabecalhoSecao: {
-    marginBottom: 12,
-  },
-  tituloSecao: {
-    color: '#1E4C8A',
-    fontSize: 17,
-    fontWeight: 'bold',
-  },
-  abasConteudo: {
-    flexDirection: 'row',
-    marginTop: 8,
-    gap: 8,
-  },
-  abaItem: {
-    backgroundColor: '#EBF4FC',
-    borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-  },
-  abaItemAtiva: {
-    backgroundColor: '#1E4C8A',
-    borderColor: '#1E4C8A',
-  },
-  textoAba: {
-    color: '#1E4C8A',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  textoAbaAtiva: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-  },
-  gradeSkins: {
-    gap: 8,
-  },
-  cardSkinGrade: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderLeftWidth: 4,
-    borderRadius: 8,
-    padding: 8,
-  },
-  imagemSkinGrade: {
-    width: 65,
-    height: 48,
-    backgroundColor: '#EBF4FC',
-    borderRadius: 4,
-  },
-  semImagemGrade: {
-    width: 65,
-    height: 48,
-    backgroundColor: '#EBF4FC',
-    borderRadius: 4,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  textoSemImagemGrade: {
-    color: '#2B6CB0',
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  infoSkinGrade: {
-    flex: 1,
-    marginLeft: 10,
-  },
-  nomeSkinGrade: {
-    color: '#1E3A5F',
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  raridadeSkinGrade: {
-    fontSize: 11,
-    fontWeight: '600',
-    marginTop: 2,
-  },
-
-  // Modal de Revelação da Skin
-  modalFundo: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.92)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 380,
-    backgroundColor: '#0F172A',
-    borderRadius: 14,
-    borderWidth: 2,
-    padding: 20,
-    alignItems: 'center',
-  },
-  modalParabens: {
-    color: '#F58220',
-    fontSize: 22,
-    fontWeight: 'bold',
-    letterSpacing: 1,
-  },
-  modalSubparabens: {
-    color: '#94A3B8',
-    fontSize: 13,
-    marginTop: 2,
-    marginBottom: 10,
-  },
-  badgeStatTrak: {
-    backgroundColor: '#C95F08',
-    paddingVertical: 3,
-    paddingHorizontal: 10,
-    borderRadius: 4,
-    marginBottom: 6,
-  },
-  textoBadgeStatTrak: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  modalContainerImagem: {
-    width: '100%',
-    height: 140,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginVertical: 10,
-  },
-  modalImagem: {
-    width: '90%',
-    height: 130,
-  },
-  modalNomeSkin: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  badgeRaridadeModal: {
-    paddingVertical: 3,
-    paddingHorizontal: 10,
-    borderRadius: 4,
-    marginTop: 6,
-  },
-  textoBadgeRaridadeModal: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  modalCondicao: {
-    color: '#94A3B8',
-    fontSize: 12,
-    marginTop: 6,
-  },
-  boxPreco: {
-    width: '100%',
-    backgroundColor: '#1E293B',
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  tituloBoxPreco: {
-    color: '#94A3B8',
-    fontSize: 10,
-    fontWeight: 'bold',
-    letterSpacing: 1,
-  },
-  linhaCarregandoPreco: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 6,
-  },
-  textoCarregandoPreco: {
-    color: '#F8FAFC',
-    fontSize: 13,
-  },
-  linhaPreco: {
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  valorPreco: {
-    color: '#10B981',
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  fontePreco: {
-    color: '#64748B',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  textoSalvoAutomatico: {
-    color: '#10B981',
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 12,
-    textAlign: 'center',
-  },
-  acoesModal: {
-    width: '100%',
-    marginTop: 10,
-    gap: 8,
-  },
-  botaoAbrirNovamente: {
-    backgroundColor: '#F58220',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    paddingVertical: 12,
-    gap: 6,
-  },
-  textoBotaoAbrirNovamente: {
-    color: '#0F1923',
-    fontSize: 15,
-    fontWeight: 'bold',
-  },
-  botaoFecharModal: {
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-  textoBotaoFecharModal: {
-    color: '#94A3B8',
-    fontSize: 13,
-    fontWeight: '600',
-  },
+  container: { flex: 1, backgroundColor: CORES.fundo },
+  centralizado: { flex: 1, backgroundColor: CORES.fundo, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  textoSecundario: { color: CORES.textoSecundario, marginTop: 10 },
+  textoErro: { color: CORES.erro, textAlign: 'center', marginBottom: 12 },
+  campoBusca: { backgroundColor: CORES.branco, borderWidth: 1, borderColor: CORES.borda, borderRadius: 8, margin: 12, paddingHorizontal: 12, height: 42, color: CORES.texto },
+  gradeCaixas: { paddingHorizontal: 6, paddingBottom: 20 },
+  textoVazio: { color: CORES.textoSecundario, textAlign: 'center', marginTop: 32 },
+  listaConteudo: { padding: 14, paddingBottom: 24 },
+  topoCaixa: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 10 },
+  botaoVoltar: { backgroundColor: CORES.branco, borderWidth: 1, borderColor: CORES.borda, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 12 },
+  textoVoltar: { color: CORES.azulPrincipal, fontWeight: 'bold' },
+  nomeCaixa: { flex: 1, color: CORES.texto, fontSize: 16, fontWeight: 'bold' },
+  areaRoleta: { height: 132, backgroundColor: CORES.branco, borderWidth: 1, borderColor: CORES.borda, borderRadius: 8, justifyContent: 'center', overflow: 'hidden' },
+  linhaCentral: { position: 'absolute', top: 0, bottom: 0, alignSelf: 'center', width: 2, backgroundColor: CORES.azulPrincipal, zIndex: 10 },
+  conteudoRoleta: { alignItems: 'center', paddingHorizontal: 12 },
+  botaoAbrir: { backgroundColor: CORES.azulPrincipal, borderRadius: 8, paddingVertical: 12, alignItems: 'center', marginTop: 12 },
+  botaoAzul: { backgroundColor: CORES.azulPrincipal, borderRadius: 8, paddingVertical: 10, paddingHorizontal: 18 },
+  botaoDesativado: { opacity: 0.6 },
+  textoBotaoAzul: { color: CORES.branco, fontWeight: 'bold', fontSize: 15 },
+  tituloSecao: { color: CORES.texto, fontSize: 16, fontWeight: 'bold', marginTop: 16, marginBottom: 8 },
+  linhaSkin: { flexDirection: 'row', alignItems: 'center', backgroundColor: CORES.branco, borderWidth: 1, borderColor: CORES.borda, borderRadius: 8, padding: 8, marginBottom: 8 },
+  imagemSkin: { width: 54, height: 40 },
+  semImagem: { color: CORES.textoSecundario, fontSize: 11 },
+  infoSkin: { flex: 1, marginLeft: 10 },
+  nomeSkin: { color: CORES.texto, fontSize: 14, fontWeight: 'bold' },
+  raridadeSkin: { fontSize: 12, fontWeight: 'bold', marginTop: 2 },
+  modalFundo: { flex: 1, backgroundColor: CORES.modalFundo, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalCard: { width: '100%', maxWidth: 340, backgroundColor: CORES.branco, borderRadius: 10, padding: 18, alignItems: 'center' },
+  modalTitulo: { color: CORES.texto, fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
+  modalImagem: { width: 200, height: 110, marginBottom: 10 },
+  modalNome: { color: CORES.texto, fontSize: 16, fontWeight: 'bold', textAlign: 'center' },
+  modalRaridade: { fontSize: 13, fontWeight: 'bold', marginTop: 4 },
+  modalPreco: { color: CORES.sucesso, fontSize: 20, fontWeight: 'bold', marginVertical: 12 },
+  acoesModal: { flexDirection: 'row', gap: 10, marginTop: 8, width: '100%' },
+  botaoModalPrimario: { flex: 1, backgroundColor: CORES.azulPrincipal, borderRadius: 8, paddingVertical: 11, alignItems: 'center' },
+  botaoModalSecundario: { flex: 1, backgroundColor: CORES.branco, borderWidth: 1, borderColor: CORES.borda, borderRadius: 8, paddingVertical: 11, alignItems: 'center' },
+  textoBotaoSecundario: { color: CORES.texto, fontWeight: 'bold', fontSize: 14 },
 });
