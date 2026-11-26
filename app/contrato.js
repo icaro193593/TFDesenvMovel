@@ -21,6 +21,7 @@ import { CORES } from '../constants/cs2Theme';
 const STORAGE_KEY_INVENTARIO = '@inventario_skins';
 const URL_API_SKINS = 'https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/skins.json';
 const RARIDADES_BLOQUEADAS = ['covert', 'contraband', 'extraordinary'];
+const RARIDADES_ADESIVO = ['high grade', 'remarkable', 'exotic', 'base grade'];
 
 const ORDEM_RARIDADES = [
   { id: 'rarity_common_weapon', name: 'Consumer Grade', cor: '#b0c3d9' },
@@ -83,6 +84,21 @@ function selecionarWearEFloat(skin) {
   return { wearNome, floatValor };
 }
 
+function ehAdesivo(item) {
+  if (!item) return false;
+  const id = String(item.id || '').toLowerCase().trim();
+  const nome = String(item.name || '').trim();
+  const origem = String(item.nomeCaixaOrigem || '').trim();
+  const raridade = String(item.rarity?.name || '').toLowerCase().trim();
+
+  if (/^(sticker|patch|graffiti|music_kit|collectible)-/.test(id)) return true;
+  if (/^(sticker|patch|sealed graffiti|music kit)\s*\|/i.test(nome)) return true;
+  if (/sticker|capsule|autograph/i.test(origem)) return true;
+  if (RARIDADES_ADESIVO.includes(raridade)) return true;
+
+  return false;
+}
+
 function ehItemBloqueado(item) {
   const raridade = (item?.rarity?.name || '').toLowerCase();
   return (
@@ -90,6 +106,10 @@ function ehItemBloqueado(item) {
     Boolean(item?.isFacaOuLuva) ||
     Boolean(item?.name && item.name.startsWith('★'))
   );
+}
+
+function ehElegivelParaContrato(item) {
+  return !ehItemBloqueado(item) && !ehAdesivo(item);
 }
 
 export default function TelaContrato() {
@@ -178,7 +198,7 @@ export default function TelaContrato() {
     if (skinsContrato.length >= itensNecessarios) {
       return setMensagemAviso(`O contrato ja possui ${itensNecessarios} skins.`);
     }
-    if (ehItemBloqueado(skin)) return setMensagemAviso('Esta skin nao pode entrar no contrato.');
+    if (!ehElegivelParaContrato(skin)) return setMensagemAviso('Esta skin nao pode entrar no contrato.');
 
     const raridade = skin.rarity?.name || '';
     if (skinsContrato.length === 0) {
@@ -319,7 +339,7 @@ export default function TelaContrato() {
   };
 
   const itensFiltrados = inventario.filter((item) => {
-    if (ehItemBloqueado(item)) return false;
+    if (!ehElegivelParaContrato(item)) return false;
     return !raridadeBloqueada || (item.rarity?.name || '').toLowerCase() === raridadeBloqueada.toLowerCase();
   });
 
