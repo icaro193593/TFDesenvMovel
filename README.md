@@ -147,7 +147,7 @@ TF/
 - **Ícones e Interface:** `@expo/vector-icons` (`MaterialIcons`), `expo-font` e `expo-status-bar`.
 - **APIs Externas e Precificação (`services/priceService.js`):**
   - **ByMykel CSGO-API:** Fornece os catálogos públicos em JSON de skins (`skins.json`) e caixas/cápsulas (`crates.json`), sem necessidade de chave de API.
-  - **Steam Community Market API (`priceoverview`):** Utilizada para consulta de preços de mercado por `market_hash_name` e moeda (`USD`, `EUR`, `BRL`), com suporte opcional à **PriceEmpire API** caso uma chave esteja salva em `@pricempire_api_key`.
+  - **Steam Community Market API (`priceoverview`):** Utilizada para consulta de preços de mercado por `market_hash_name` e moeda (`USD`, `EUR`, `BRL`), sem necessidade de chave de API.
   - **Cache e Fallback Determinístico:** O `priceService.js` mantém cache em memória com TTL de 10 minutos (`CACHE_PRECOS_TTL_MS`), deduplicação de requisições concorrentes, tentativa alternativa de desgaste (*Factory New* / *Minimal Wear*) e fallback determinístico local (`calcularFallbackDeterministico`) baseado em raridade, desgaste, `StatTrak™` e hash do nome da skin caso a API externa esteja indisponível ou limitada por *rate-limit*.
 - **Persistência Local (`@react-native-async-storage/async-storage` `2.2.0`):**
   - `@inventario_skins`: Lista de skins salvas no inventário do usuário.

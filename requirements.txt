@@ -51,14 +51,14 @@ Garbskins CS2 & Market Browser — Requisitos do Projeto (requirements.txt)
     de float (min_float / max_float) e imagens.
 
 - Mercado e Cotações em Tempo Real (via fetch nativo em services/priceService.js):
-  * Pricempire API (https://api.pricempire.com)
-    Requer API Key (opcionalmente configurável no app e persistida no AsyncStorage
-    sob a chave @pricempire_api_key; plano gratuito disponível para testes).
-  * Fallbacks previstos no projeto:
-    - Steam Community Market API (endpoint público priceoverview, sem API Key) e
-      provedores alternativos descritos na proposta (cs2.sh, Skinstrack,
-      SteamAnalyst, Skinport), além de estimativa local caso as APIs externas
-      estejam indisponíveis ou bloqueadas por CORS/rate-limit.
+  * Steam Community Market API (endpoint público priceoverview, gratuita e sem
+    necessidade de API Key)
+    Utilizada para consulta de preços de mercado por market_hash_name e moeda
+    (USD, EUR, BRL).
+  * Cache e Fallback:
+    - Cache em memória para evitar requisições repetidas e fallback
+      determinístico local caso a API externa esteja indisponível ou bloqueada
+      por CORS/rate-limit.
 
 4. INSTALAÇÃO E EXECUÇÃO
 --------------------------------------------------------------------------------

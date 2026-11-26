@@ -1,7 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const STORAGE_KEY_PRICEMPIRE = '@pricempire_api_key';
-
 export const STORAGE_KEY_MOEDA = '@moeda_selecionada';
 
 const CACHE_PRECOS_TTL_MS = 10 * 60 * 1000;
@@ -510,50 +508,6 @@ export async function obterPrecoSkin(
       });
     };
 
-    let apiKey = null;
-    try {
-      apiKey = await AsyncStorage.getItem(STORAGE_KEY_PRICEMPIRE);
-    } catch (err) {
-
-    }
-
-    if (apiKey && apiKey.trim().length > 0) {
-      try {
-        const urlPricempire = `https://api.pricempire.com/v4/paid/items/prices?app_id=730&api_key=${encodeURIComponent(
-          apiKey.trim()
-        )}&currency=${encodeURIComponent(moeda)}&sources=buff163,skinport,steam`;
-
-        const respostaPe = await fetch(urlPricempire);
-        if (respostaPe.ok) {
-          const dadosPe = await respostaPe.json();
-          let itemPe = null;
-          if (Array.isArray(dadosPe)) {
-            itemPe = dadosPe.find(
-              (i) => (i.market_hash_name || '').toLowerCase() === marketHashName.toLowerCase()
-            );
-          } else if (dadosPe && typeof dadosPe === 'object') {
-            itemPe = dadosPe[marketHashName] || dadosPe[marketHashName.toLowerCase()];
-          }
-
-          if (itemPe && itemPe.prices && itemPe.prices.length > 0) {
-            const precoEmCentavos = itemPe.prices[0].price ?? itemPe.prices[0].min_price;
-            if (
-              typeof precoEmCentavos === 'number' &&
-              Number.isFinite(precoEmCentavos) &&
-              precoEmCentavos > 0
-            ) {
-              const valorFinal = Number((precoEmCentavos / 100).toFixed(2));
-              const resultadoPe = criarResultadoPreco(valorFinal, moeda, 'PriceEmpire API');
-              salvarNoCache(chaveCache, resultadoPe);
-              return resultadoPe;
-            }
-          }
-        }
-      } catch (err) {
-
-      }
-    }
-
     let houveErroRealSteam = false;
     const steamRes = await consultarSteamPriceOverview(marketHashName, moeda);
 
@@ -726,84 +680,6 @@ export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
     throw new Error('Não foi possível carregar skins com preço válido.');
   }
 
-  let apiKey = null;
-  try {
-    apiKey = await AsyncStorage.getItem(STORAGE_KEY_PRICEMPIRE);
-  } catch (err) {
-
-  }
-
-  if (apiKey && apiKey.trim().length > 0) {
-    try {
-      const urlPricempire = `https://api.pricempire.com/v4/paid/items/prices?app_id=730&api_key=${encodeURIComponent(
-        apiKey.trim()
-      )}&currency=${encodeURIComponent(moeda)}&sources=buff163,skinport,steam`;
-
-      const respostaPe = await fetch(urlPricempire);
-      if (respostaPe.ok) {
-        const dadosPe = await respostaPe.json();
-        const mapaPe = new Map();
-        if (Array.isArray(dadosPe)) {
-          for (const item of dadosPe) {
-            if (item && item.market_hash_name) {
-              mapaPe.set(String(item.market_hash_name).toLowerCase(), item);
-            }
-          }
-        } else if (dadosPe && typeof dadosPe === 'object') {
-          for (const [k, v] of Object.entries(dadosPe)) {
-            if (k && v) {
-              mapaPe.set(String(k).toLowerCase(), v);
-            }
-          }
-        }
-
-        const skinsValidasPe = [];
-        for (const skin of skinsElegiveis) {
-          const wear = obterWearPadrao(skin);
-          const hashName = formatarMarketHashName(skin.name, wear, false).toLowerCase();
-          const itemPe = mapaPe.get(hashName);
-          if (!itemPe) continue;
-
-          let precoCentavos = null;
-          if (Array.isArray(itemPe.prices) && itemPe.prices.length > 0) {
-            precoCentavos = itemPe.prices[0].price ?? itemPe.prices[0].min_price;
-          } else if (typeof itemPe.price === 'number') {
-            precoCentavos = itemPe.price;
-          } else if (typeof itemPe.min_price === 'number') {
-            precoCentavos = itemPe.min_price;
-          }
-
-          if (typeof precoCentavos === 'number' && Number.isFinite(precoCentavos) && precoCentavos > 0) {
-            const valorBruto = precoCentavos / 100;
-            const valorNumerico = Number(valorBruto.toFixed(2));
-            if (Number.isFinite(valorNumerico) && valorNumerico > 0) {
-              const valorUsd =
-                moeda === 'USD' ? valorNumerico : converterValorMoeda(valorNumerico, moeda, 'USD');
-              if (Number.isFinite(valorUsd) && valorUsd > 0) {
-                skinsValidasPe.push({
-                  id: skin.id,
-                  name: skin.name,
-                  image: skin.image,
-                  rarityName: skin.rarity?.name || '',
-                  rarityColor: skin.rarity?.color || '#2B6CB0',
-                  wear,
-                  valorUsd,
-                  fonte: 'PriceEmpire API',
-                });
-              }
-            }
-          }
-        }
-
-        if (skinsValidasPe.length >= 2) {
-          return embaralharArray(skinsValidasPe).slice(0, 35);
-        }
-      }
-    } catch (peErr) {
-
-    }
-  }
-
   const amostra = embaralharArray(skinsElegiveis).slice(0, 35);
   const skinsProntas = [];
   let falhasConsecutivasSteam = 0;
@@ -836,10 +712,7 @@ export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
     try {
       const infoPreco = await obterPrecoSkin(skin.name, raridadeNome, wear, false, moeda);
       if (infoPreco && Number.isFinite(infoPreco.valorUsd) && infoPreco.valorUsd > 0) {
-        if (
-          infoPreco.fonte === 'Steam Community Market' ||
-          infoPreco.fonte === 'PriceEmpire API'
-        ) {
+        if (infoPreco.fonte === 'Steam Community Market') {
           falhasConsecutivasSteam = 0;
         } else if (infoPreco._steamErroReal) {
           falhasConsecutivasSteam++;
