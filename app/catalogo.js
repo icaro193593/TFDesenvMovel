@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -10,9 +10,12 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { MaterialIcons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import SkinCard from '../components/SkinCard';
+import { CORES, ESPACAMENTO, BORDAS } from '../constants/cs2Theme';
 
-// Endereço oficial da API ByMykel CSGO-API com todas as skins em inglês
+// Endereço oficial da API ByMykel CSGO-API com todas as skins
 const URL_API_SKINS =
   'https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/skins.json';
 
@@ -46,14 +49,16 @@ export default function CatalogoScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Estados da busca por texto, dos filtros selecionados e dos modais dropdown
+  // Estados da busca por texto e dos filtros selecionados
   const [busca, setBusca] = useState('');
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todas');
   const [raridadeSelecionada, setRaridadeSelecionada] = useState('Todas');
+
+  // Modais dropdown de filtros em estilo cockpit
   const [modalCategoriaAberto, setModalCategoriaAberto] = useState(false);
   const [modalRaridadeAberto, setModalRaridadeAberto] = useState(false);
 
-  // Busca o catálogo de skins na API usando fetch
+  // Busca o catálogo de skins na API usando fetch nativo
   const carregarSkins = () => {
     setIsLoading(true);
     setError(null);
@@ -61,225 +66,311 @@ export default function CatalogoScreen() {
     fetch(URL_API_SKINS)
       .then((resposta) => {
         if (!resposta.ok) {
-          throw new Error('Erro ao carregar as skins.');
+          throw new Error('Falha ao sincronizar o arsenal de skins do CS2.');
         }
         return resposta.json();
       })
       .then((dados) => {
-        setSkins(dados);
+        setSkins(Array.isArray(dados) ? dados : []);
       })
       .catch((err) => {
-        setError(err.message);
+        setError(err.message || 'Erro de conexão com o banco de dados.');
       })
       .finally(() => {
         setIsLoading(false);
       });
   };
 
-  // Executa apenas uma vez ao abrir a tela
   useEffect(() => {
     carregarSkins();
   }, []);
 
-  // Restaura a busca e todos os filtros para o estado inicial
+  // Restaura a busca e todos os filtros para o estado padrão
   const limparFiltros = () => {
     setBusca('');
     setCategoriaSelecionada('Todas');
     setRaridadeSelecionada('Todas');
   };
 
-  // Retorno antecipado enquanto a API está carregando
+  // Filtragem combinada por busca textual, categoria e raridade otimizada com useMemo
+  const skinsFiltradas = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+
+    return skins.filter((item) => {
+      const nomeSkin = item.name ? item.name.toLowerCase() : '';
+      const nomeArma = item.weapon?.name ? item.weapon.name.toLowerCase() : '';
+
+      const bateBusca =
+        termo === '' || nomeSkin.includes(termo) || nomeArma.includes(termo);
+      const bateCategoria =
+        categoriaSelecionada === 'Todas' ||
+        item.category?.name === categoriaSelecionada;
+      const bateRaridade =
+        raridadeSelecionada === 'Todas' ||
+        item.rarity?.name === raridadeSelecionada;
+
+      return bateBusca && bateCategoria && bateRaridade;
+    });
+  }, [skins, busca, categoriaSelecionada, raridadeSelecionada]);
+
+  const temFiltroAtivo =
+    busca.trim().length > 0 ||
+    categoriaSelecionada !== 'Todas' ||
+    raridadeSelecionada !== 'Todas';
+
+  // Navega para detalhes da skin ao tocar no card
+  const handleSelecionarSkin = (item) => {
+    router.push({
+      pathname: '/detalhes',
+      params: { id: item.id, skin: JSON.stringify(item) },
+    });
+  };
+
+  // 1. ESTADO DE CARREGAMENTO TÁTICO
   if (isLoading) {
     return (
       <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.centralizado}>
-        <ActivityIndicator size="large" color="#F58220" />
-        <Text style={styles.textoStatus}>Carregando skins do CS2...</Text>
+        <View style={styles.boxStatus}>
+          <ActivityIndicator size="large" color={CORES.laranjaCs} />
+          <Text style={styles.textoStatusTitulo}>SINCRONIZANDO ARSENAL CS2</Text>
+          <Text style={styles.textoStatusSub}>
+            Carregando catálogo com mais de 1.800 skins oficiais...
+          </Text>
+        </View>
       </SafeAreaView>
     );
   }
 
-  // Retorno antecipado caso ocorra algum erro
+  // 2. ESTADO DE ERRO TÁTICO
   if (error) {
     return (
       <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.centralizado}>
-        <Text style={styles.textoErro}>{error}</Text>
-        <TouchableOpacity
-          style={styles.botaoAcao}
-          activeOpacity={0.7}
-          onPress={carregarSkins}
-        >
-          <Text style={styles.textoBotaoAcao}>Tentar novamente</Text>
-        </TouchableOpacity>
+        <View style={styles.boxErro}>
+          <MaterialIcons name="error-outline" size={44} color={CORES.erro} />
+          <Text style={styles.textoErroTitulo}>FALHA DE COMUNICAÇÃO</Text>
+          <Text style={styles.textoErroSub}>{error}</Text>
+          <TouchableOpacity
+            style={styles.botaoRecarregar}
+            activeOpacity={0.7}
+            onPress={carregarSkins}
+          >
+            <MaterialIcons name="refresh" size={18} color={CORES.textoInvertido} />
+            <Text style={styles.textoBotaoRecarregar}>TENTAR NOVAMENTE</Text>
+          </TouchableOpacity>
+        </View>
       </SafeAreaView>
     );
   }
 
-  // Filtragem combinada por texto (nome da skin ou arma), categoria e raridade
-  const skinsFiltradas = skins.filter((item) => {
-    const termo = busca.trim().toLowerCase();
-    const nomeSkin = item.name ? item.name.toLowerCase() : '';
-    const nomeArma = item.weapon?.name ? item.weapon.name.toLowerCase() : '';
-
-    const bateBusca =
-      termo === '' || nomeSkin.includes(termo) || nomeArma.includes(termo);
-    const bateCategoria =
-      categoriaSelecionada === 'Todas' ||
-      item.category?.name === categoriaSelecionada;
-    const bateRaridade =
-      raridadeSelecionada === 'Todas' ||
-      item.rarity?.name === raridadeSelecionada;
-
-    return bateBusca && bateCategoria && bateRaridade;
-  });
-
-  const textoContador =
-    skinsFiltradas.length === 1
-      ? '1 skin encontrada'
-      : `${skinsFiltradas.length} skins encontradas`;
-
-  const categoriaFiltrada = categoriaSelecionada !== 'Todas';
-  const raridadeFiltrada = raridadeSelecionada !== 'Todas';
-
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.container}>
-      {/* Cabeçalho simples com título e contador de resultados */}
+      {/* CABEÇALHO TÁTICO COM TÍTULO E CONTADOR ESTILIZADO */}
       <View style={styles.cabecalho}>
-        <Text style={styles.titulo}>Catálogo de Skins</Text>
-        <Text style={styles.contador}>{textoContador}</Text>
+        <View style={styles.linhaTitulo}>
+          <Text style={styles.titulo}>Catálogo de Skins</Text>
+          <View style={styles.badgeContador}>
+            <View style={styles.pontoContador} />
+            <Text style={styles.textoBadgeContador}>
+              {skinsFiltradas.length}{' '}
+              {skinsFiltradas.length === 1 ? 'SKIN' : 'SKINS'}
+            </Text>
+          </View>
+        </View>
+        <Text style={styles.subtitulo}>
+          Arsenal de armamentos, facas, luvas e faixas de float
+        </Text>
       </View>
 
-      {/* Barra de busca simples com botão de limpar */}
-      <View style={styles.barraBusca}>
-        <TextInput
-          style={styles.campoBusca}
-          value={busca}
-          onChangeText={setBusca}
-          placeholder="Buscar por skin ou arma..."
-          placeholderTextColor="#5D79AE"
-        />
-        {busca.length > 0 && (
-          <TouchableOpacity
-            style={styles.botaoLimpar}
-            activeOpacity={0.7}
-            onPress={() => setBusca('')}
-          >
-            <Text style={styles.textoLimpar}>Limpar</Text>
-          </TouchableOpacity>
-        )}
+      {/* BARRA DE BUSCA MODERNA COM ÍCONES E BOTÃO LIMPAR */}
+      <View style={styles.barraBuscaContainer}>
+        <View style={styles.campoBuscaWrapper}>
+          <MaterialIcons
+            name="search"
+            size={20}
+            color={CORES.textoSecundario}
+            style={styles.iconeBusca}
+          />
+          <TextInput
+            style={styles.campoBusca}
+            value={busca}
+            onChangeText={setBusca}
+            placeholder="Buscar por skin ou arma (ex: AK-47, Asiimov)..."
+            placeholderTextColor={CORES.textoMudo}
+            selectionColor={CORES.laranjaCs}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {busca.length > 0 && (
+            <TouchableOpacity
+              style={styles.botaoLimparInput}
+              activeOpacity={0.7}
+              onPress={() => setBusca('')}
+              accessibilityLabel="Limpar busca"
+            >
+              <MaterialIcons name="close" size={16} color={CORES.textoSecundario} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
-      {/* Dropdowns lado a lado para Categoria e Raridade */}
-      <View style={styles.linhaFiltros}>
-        <View style={styles.colunaFiltro}>
-          <Text style={styles.rotuloFiltro}>Categoria</Text>
-          <TouchableOpacity
-            style={[
-              styles.botaoDropdown,
-              categoriaFiltrada
-                ? styles.dropdownCategoriaAtivo
-                : styles.dropdownCategoriaPadrao,
-            ]}
-            activeOpacity={0.7}
-            onPress={() => setModalCategoriaAberto(true)}
-          >
+      {/* BARRA DE FILTROS ESTILO COCKPIT MILITAR */}
+      <View style={styles.cockpitFiltros}>
+        {/* Botão de Categoria */}
+        <TouchableOpacity
+          style={[
+            styles.botaoFiltroCockpit,
+            categoriaSelecionada !== 'Todas' && styles.botaoFiltroCockpitAtivo,
+          ]}
+          activeOpacity={0.7}
+          onPress={() => setModalCategoriaAberto(true)}
+        >
+          <View style={styles.conteudoFiltroCockpit}>
+            <Text style={styles.rotuloFiltroCockpit}>CATEGORIA</Text>
             <Text
               style={[
-                styles.textoDropdown,
-                categoriaFiltrada
-                  ? styles.textoDropdownCategoriaAtivo
-                  : styles.textoDropdownCategoria,
+                styles.valorFiltroCockpit,
+                categoriaSelecionada !== 'Todas' && styles.valorFiltroCockpitAtivo,
               ]}
               numberOfLines={1}
             >
               {categoriaSelecionada}
             </Text>
-            <Text
-              style={[
-                styles.setaDropdown,
-                categoriaFiltrada
-                  ? styles.textoDropdownCategoriaAtivo
-                  : styles.textoDropdownCategoria,
-              ]}
-            >
-              ▼
-            </Text>
-          </TouchableOpacity>
-        </View>
+          </View>
+          <MaterialIcons
+            name="keyboard-arrow-down"
+            size={18}
+            color={
+              categoriaSelecionada !== 'Todas'
+                ? CORES.laranjaCs
+                : CORES.textoSecundario
+            }
+          />
+        </TouchableOpacity>
 
-        <View style={styles.colunaFiltro}>
-          <Text style={styles.rotuloFiltro}>Raridade</Text>
+        {/* Botão de Raridade */}
+        <TouchableOpacity
+          style={[
+            styles.botaoFiltroCockpit,
+            raridadeSelecionada !== 'Todas' && styles.botaoFiltroCockpitAtivo,
+          ]}
+          activeOpacity={0.7}
+          onPress={() => setModalRaridadeAberto(true)}
+        >
+          <View style={styles.conteudoFiltroCockpit}>
+            <Text style={styles.rotuloFiltroCockpit}>RARIDADE</Text>
+            <View style={styles.linhaValorRaridade}>
+              {raridadeSelecionada !== 'Todas' && (
+                <View
+                  style={[
+                    styles.pontoRaridadeFiltro,
+                    {
+                      backgroundColor:
+                        CORES.raridades[raridadeSelecionada] || CORES.laranjaCs,
+                    },
+                  ]}
+                />
+              )}
+              <Text
+                style={[
+                  styles.valorFiltroCockpit,
+                  raridadeSelecionada !== 'Todas' && styles.valorFiltroCockpitAtivo,
+                ]}
+                numberOfLines={1}
+              >
+                {raridadeSelecionada}
+              </Text>
+            </View>
+          </View>
+          <MaterialIcons
+            name="keyboard-arrow-down"
+            size={18}
+            color={
+              raridadeSelecionada !== 'Todas'
+                ? CORES.laranjaCs
+                : CORES.textoSecundario
+            }
+          />
+        </TouchableOpacity>
+
+        {/* Botão de Reset Rápido quando houver filtro ativo */}
+        {temFiltroAtivo && (
           <TouchableOpacity
-            style={[
-              styles.botaoDropdown,
-              raridadeFiltrada
-                ? styles.dropdownRaridadeAtivo
-                : styles.dropdownRaridadePadrao,
-            ]}
+            style={styles.botaoResetCockpit}
             activeOpacity={0.7}
-            onPress={() => setModalRaridadeAberto(true)}
+            onPress={limparFiltros}
+            accessibilityLabel="Limpar todos os filtros"
           >
-            <Text
-              style={[
-                styles.textoDropdown,
-                raridadeFiltrada
-                  ? styles.textoDropdownRaridadeAtivo
-                  : styles.textoDropdownRaridade,
-              ]}
-              numberOfLines={1}
-            >
-              {raridadeSelecionada}
-            </Text>
-            <Text
-              style={[
-                styles.setaDropdown,
-                raridadeFiltrada
-                  ? styles.textoDropdownRaridadeAtivo
-                  : styles.textoDropdownRaridade,
-              ]}
-            >
-              ▼
-            </Text>
+            <MaterialIcons name="filter-alt-off" size={18} color={CORES.laranjaCs} />
           </TouchableOpacity>
-        </View>
+        )}
       </View>
 
-      {/* Lista principal com as skins filtradas */}
+      {/* LISTA VIRTUALIZADA OTIMIZADA COM FLATLIST */}
       <FlatList
         style={styles.listaPrincipal}
         contentContainerStyle={styles.conteudoLista}
         data={skinsFiltradas}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <SkinCard item={item} />}
+        keyExtractor={(item) => String(item.id)}
+        renderItem={({ item }) => (
+          <SkinCard item={item} onPress={() => handleSelecionarSkin(item)} />
+        )}
         ItemSeparatorComponent={() => <View style={styles.separador} />}
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        removeClippedSubviews={true}
+        showsVerticalScrollIndicator={false}
         ListEmptyComponent={() => (
           <View style={styles.vazioContainer}>
-            <Text style={styles.vazioTitulo}>
-              Nenhuma skin encontrada para essa busca.
-            </Text>
+            <View style={styles.circuloIconeVazio}>
+              <MaterialIcons name="search-off" size={40} color={CORES.textoMudo} />
+            </View>
+            <Text style={styles.vazioTitulo}>Nenhuma skin encontrada</Text>
             <Text style={styles.vazioSubtitulo}>
-              Tente outro nome ou limpe os filtros selecionados.
+              Não encontramos nenhum armamento correspondente aos filtros ou termos
+              digitados.
             </Text>
-            <TouchableOpacity
-              style={styles.botaoAcao}
-              activeOpacity={0.7}
-              onPress={limparFiltros}
-            >
-              <Text style={styles.textoBotaoAcao}>Limpar filtros</Text>
-            </TouchableOpacity>
+            {temFiltroAtivo && (
+              <TouchableOpacity
+                style={styles.botaoResetarVazio}
+                activeOpacity={0.7}
+                onPress={limparFiltros}
+              >
+                <MaterialIcons name="restart-alt" size={18} color={CORES.textoInvertido} />
+                <Text style={styles.textoBotaoResetarVazio}>LIMPAR TODOS OS FILTROS</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       />
 
-      {/* Modal de seleção de Categoria */}
+      {/* MODAL COCKPIT: ESCOLHA DE CATEGORIA */}
       <Modal
         visible={modalCategoriaAberto}
         onRequestClose={() => setModalCategoriaAberto(false)}
         animationType="slide"
+        presentationStyle="pageSheet"
       >
-        <SafeAreaView style={styles.modalContainer}>
-          <Text style={styles.modalTitulo}>Escolher Categoria</Text>
+        <SafeAreaView style={styles.modalSafeArea}>
+          <View style={styles.modalCabecalho}>
+            <View>
+              <Text style={styles.modalTitulo}>SELECIONAR CATEGORIA</Text>
+              <Text style={styles.modalSubtitulo}>
+                Filtre por tipo de armamento no arsenal
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.modalBotaoFecharIcone}
+              activeOpacity={0.7}
+              onPress={() => setModalCategoriaAberto(false)}
+            >
+              <MaterialIcons name="close" size={20} color={CORES.textoPrincipal} />
+            </TouchableOpacity>
+          </View>
+
           <FlatList
             style={styles.listaModal}
+            contentContainerStyle={styles.conteudoListaModal}
             data={CATEGORIAS}
             keyExtractor={(item) => item}
             renderItem={({ item }) => {
@@ -288,7 +379,7 @@ export default function CatalogoScreen() {
                 <TouchableOpacity
                   style={[
                     styles.opcaoModal,
-                    ativa && styles.opcaoCategoriaAtiva,
+                    ativa && styles.opcaoModalAtiva,
                   ]}
                   activeOpacity={0.7}
                   onPress={() => {
@@ -296,47 +387,74 @@ export default function CatalogoScreen() {
                     setModalCategoriaAberto(false);
                   }}
                 >
-                  <Text
-                    style={[
-                      styles.textoOpcaoModal,
-                      ativa && styles.textoOpcaoCategoriaAtiva,
-                    ]}
-                  >
-                    {item}
-                  </Text>
+                  <View style={styles.opcaoModalConteudo}>
+                    <Text
+                      style={[
+                        styles.textoOpcaoModal,
+                        ativa && styles.textoOpcaoModalAtiva,
+                      ]}
+                    >
+                      {item}
+                    </Text>
+                  </View>
+                  {ativa && (
+                    <MaterialIcons name="check" size={18} color={CORES.laranjaCs} />
+                  )}
                 </TouchableOpacity>
               );
             }}
           />
-          <TouchableOpacity
-            style={styles.botaoFecharModal}
-            activeOpacity={0.7}
-            onPress={() => setModalCategoriaAberto(false)}
-          >
-            <Text style={styles.textoBotaoFecharModal}>Fechar</Text>
-          </TouchableOpacity>
+
+          <View style={styles.modalRodape}>
+            <TouchableOpacity
+              style={styles.botaoConfirmarModal}
+              activeOpacity={0.7}
+              onPress={() => setModalCategoriaAberto(false)}
+            >
+              <Text style={styles.textoBotaoConfirmarModal}>FECHAR</Text>
+            </TouchableOpacity>
+          </View>
         </SafeAreaView>
       </Modal>
 
-      {/* Modal de seleção de Raridade */}
+      {/* MODAL COCKPIT: ESCOLHA DE RARIDADE */}
       <Modal
         visible={modalRaridadeAberto}
         onRequestClose={() => setModalRaridadeAberto(false)}
         animationType="slide"
+        presentationStyle="pageSheet"
       >
-        <SafeAreaView style={styles.modalContainer}>
-          <Text style={styles.modalTitulo}>Escolher Raridade</Text>
+        <SafeAreaView style={styles.modalSafeArea}>
+          <View style={styles.modalCabecalho}>
+            <View>
+              <Text style={styles.modalTitulo}>SELECIONAR RARIDADE</Text>
+              <Text style={styles.modalSubtitulo}>
+                Padrão de patentes e raridades oficiais CS2
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.modalBotaoFecharIcone}
+              activeOpacity={0.7}
+              onPress={() => setModalRaridadeAberto(false)}
+            >
+              <MaterialIcons name="close" size={20} color={CORES.textoPrincipal} />
+            </TouchableOpacity>
+          </View>
+
           <FlatList
             style={styles.listaModal}
+            contentContainerStyle={styles.conteudoListaModal}
             data={RARIDADES}
             keyExtractor={(item) => item}
             renderItem={({ item }) => {
               const ativa = item === raridadeSelecionada;
+              const corRaridade = CORES.raridades[item] || CORES.textoSecundario;
+
               return (
                 <TouchableOpacity
                   style={[
                     styles.opcaoModal,
-                    ativa && styles.opcaoRaridadeAtiva,
+                    ativa && styles.opcaoModalAtiva,
                   ]}
                   activeOpacity={0.7}
                   onPress={() => {
@@ -344,25 +462,42 @@ export default function CatalogoScreen() {
                     setModalRaridadeAberto(false);
                   }}
                 >
-                  <Text
-                    style={[
-                      styles.textoOpcaoModal,
-                      ativa && styles.textoOpcaoRaridadeAtiva,
-                    ]}
-                  >
-                    {item}
-                  </Text>
+                  <View style={styles.opcaoModalConteudo}>
+                    {item !== 'Todas' && (
+                      <View
+                        style={[
+                          styles.pontoRaridadeOpcao,
+                          { backgroundColor: corRaridade },
+                        ]}
+                      />
+                    )}
+                    <Text
+                      style={[
+                        styles.textoOpcaoModal,
+                        item !== 'Todas' && { color: corRaridade },
+                        ativa && styles.textoOpcaoModalAtiva,
+                      ]}
+                    >
+                      {item}
+                    </Text>
+                  </View>
+                  {ativa && (
+                    <MaterialIcons name="check" size={18} color={CORES.laranjaCs} />
+                  )}
                 </TouchableOpacity>
               );
             }}
           />
-          <TouchableOpacity
-            style={styles.botaoFecharModal}
-            activeOpacity={0.7}
-            onPress={() => setModalRaridadeAberto(false)}
-          >
-            <Text style={styles.textoBotaoFecharModal}>Fechar</Text>
-          </TouchableOpacity>
+
+          <View style={styles.modalRodape}>
+            <TouchableOpacity
+              style={styles.botaoConfirmarModal}
+              activeOpacity={0.7}
+              onPress={() => setModalRaridadeAberto(false)}
+            >
+              <Text style={styles.textoBotaoConfirmarModal}>FECHAR</Text>
+            </TouchableOpacity>
+          </View>
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
@@ -372,230 +507,365 @@ export default function CatalogoScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.fundoApp,
   },
   centralizado: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.fundoApp,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: ESPACAMENTO.xl,
   },
-  textoStatus: {
-    color: '#1E4C8A',
-    fontSize: 16,
-    marginTop: 12,
+  boxStatus: {
+    alignItems: 'center',
+    padding: ESPACAMENTO.xl,
+    backgroundColor: CORES.fundoCard,
+    borderWidth: 1,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.lg,
+    width: '100%',
   },
-  textoErro: {
-    color: '#C95F08',
+  textoStatusTitulo: {
+    color: CORES.textoPrincipal,
     fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    marginTop: ESPACAMENTO.md,
+  },
+  textoStatusSub: {
+    color: CORES.textoSecundario,
+    fontSize: 12,
     textAlign: 'center',
-    marginBottom: 16,
+    marginTop: ESPACAMENTO.xs,
   },
-  cabecalho: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 10,
+  boxErro: {
+    alignItems: 'center',
+    padding: ESPACAMENTO.xl,
+    backgroundColor: CORES.fundoCard,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+    borderRadius: BORDAS.lg,
+    width: '100%',
   },
-  titulo: {
-    color: '#1E4C8A',
-    fontSize: 22,
-    fontWeight: 'bold',
+  textoErroTitulo: {
+    color: CORES.erro,
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    marginTop: ESPACAMENTO.sm,
   },
-  contador: {
-    color: '#C95F08',
+  textoErroSub: {
+    color: CORES.textoSecundario,
     fontSize: 13,
-    fontWeight: '600',
-    marginTop: 4,
+    textAlign: 'center',
+    marginVertical: ESPACAMENTO.md,
   },
-  barraBusca: {
+  botaoRecarregar: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 16,
-    marginBottom: 12,
+    backgroundColor: CORES.laranjaCs,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: BORDAS.md,
+    gap: 8,
+  },
+  textoBotaoRecarregar: {
+    color: CORES.textoInvertido,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  // CABEÇALHO
+  cabecalho: {
+    paddingHorizontal: ESPACAMENTO.lg,
+    paddingTop: ESPACAMENTO.md,
+    paddingBottom: ESPACAMENTO.sm,
+  },
+  linhaTitulo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  titulo: {
+    color: CORES.textoPrincipal,
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  badgeContador: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245, 130, 32, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 130, 32, 0.35)',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: BORDAS.pill,
+  },
+  pontoContador: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: CORES.laranjaCs,
+    marginRight: 6,
+  },
+  textoBadgeContador: {
+    color: CORES.laranjaCs,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  subtitulo: {
+    color: CORES.textoSecundario,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  // BARRA DE BUSCA
+  barraBuscaContainer: {
+    paddingHorizontal: ESPACAMENTO.lg,
+    marginTop: ESPACAMENTO.sm,
+    marginBottom: ESPACAMENTO.sm,
+  },
+  campoBuscaWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: CORES.fundoInput,
+    borderWidth: 1,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.md,
+    paddingHorizontal: ESPACAMENTO.md,
+    height: 44,
+  },
+  iconeBusca: {
+    marginRight: 8,
   },
   campoBusca: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#2B6CB0',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    height: 42,
-    color: '#1E3A5F',
-    fontSize: 15,
-  },
-  botaoLimpar: {
-    marginLeft: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-  },
-  textoLimpar: {
-    color: '#2B6CB0',
+    color: CORES.textoPrincipal,
     fontSize: 14,
-    fontWeight: 'bold',
+    paddingVertical: 0,
   },
-  linhaFiltros: {
+  botaoLimparInput: {
+    padding: 4,
+    backgroundColor: CORES.fundoSuperficie,
+    borderRadius: BORDAS.pill,
+  },
+  // COCKPIT DE FILTROS
+  cockpitFiltros: {
     flexDirection: 'row',
-    gap: 10,
-    marginHorizontal: 16,
-    marginBottom: 12,
+    alignItems: 'center',
+    paddingHorizontal: ESPACAMENTO.lg,
+    marginBottom: ESPACAMENTO.md,
+    gap: 8,
   },
-  colunaFiltro: {
+  botaoFiltroCockpit: {
     flex: 1,
-  },
-  rotuloFiltro: {
-    color: '#1E4C8A',
-    fontSize: 13,
-    fontWeight: 'bold',
-    marginBottom: 6,
-  },
-  botaoDropdown: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    backgroundColor: CORES.fundoSuperficie,
     borderWidth: 1,
-    borderRadius: 8,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.md,
     paddingHorizontal: 12,
-    height: 42,
+    paddingVertical: 8,
+    minHeight: 44,
   },
-  dropdownCategoriaPadrao: {
-    backgroundColor: '#EBF4FC',
-    borderColor: '#2B6CB0',
+  botaoFiltroCockpitAtivo: {
+    borderColor: CORES.laranjaCs,
+    backgroundColor: 'rgba(245, 130, 32, 0.08)',
   },
-  dropdownCategoriaAtivo: {
-    backgroundColor: '#1E4C8A',
-    borderColor: '#1E4C8A',
-  },
-  dropdownRaridadePadrao: {
-    backgroundColor: '#FFF3E8',
-    borderColor: '#F58220',
-  },
-  dropdownRaridadeAtivo: {
-    backgroundColor: '#F58220',
-    borderColor: '#F58220',
-  },
-  textoDropdown: {
+  conteudoFiltroCockpit: {
     flex: 1,
-    fontSize: 14,
-    marginRight: 6,
+    marginRight: 4,
   },
-  setaDropdown: {
-    fontSize: 11,
+  rotuloFiltroCockpit: {
+    color: CORES.textoMudo,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.6,
   },
-  textoDropdownCategoria: {
-    color: '#1E4C8A',
-    fontWeight: '600',
+  valorFiltroCockpit: {
+    color: CORES.textoPrincipal,
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 1,
   },
-  textoDropdownCategoriaAtivo: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
+  valorFiltroCockpitAtivo: {
+    color: CORES.laranjaCs,
   },
-  textoDropdownRaridade: {
-    color: '#C95F08',
-    fontWeight: '600',
-  },
-  textoDropdownRaridadeAtivo: {
-    color: '#0F1923',
-    fontWeight: 'bold',
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-  },
-  modalTitulo: {
-    color: '#1E4C8A',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 14,
-  },
-  listaModal: {
-    flex: 1,
-  },
-  opcaoModal: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 8,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    marginBottom: 8,
-  },
-  opcaoCategoriaAtiva: {
-    backgroundColor: '#1E4C8A',
-    borderColor: '#1E4C8A',
-  },
-  opcaoRaridadeAtiva: {
-    backgroundColor: '#F58220',
-    borderColor: '#F58220',
-  },
-  textoOpcaoModal: {
-    color: '#1E4C8A',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  textoOpcaoCategoriaAtiva: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-  },
-  textoOpcaoRaridadeAtiva: {
-    color: '#0F1923',
-    fontWeight: 'bold',
-  },
-  botaoFecharModal: {
-    backgroundColor: '#EBF4FC',
-    borderWidth: 1,
-    borderColor: '#2B6CB0',
-    borderRadius: 8,
-    paddingVertical: 12,
+  linhaValorRaridade: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 12,
+    marginTop: 1,
   },
-  textoBotaoFecharModal: {
-    color: '#1E4C8A',
-    fontSize: 16,
-    fontWeight: 'bold',
+  pontoRaridadeFiltro: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    marginRight: 5,
   },
+  botaoResetCockpit: {
+    width: 44,
+    height: 44,
+    backgroundColor: CORES.fundoSuperficie,
+    borderWidth: 1,
+    borderColor: CORES.laranjaCs,
+    borderRadius: BORDAS.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // LISTA
   listaPrincipal: {
     flex: 1,
   },
   conteudoLista: {
-    paddingHorizontal: 16,
-    paddingTop: 4,
-    paddingBottom: 24,
+    paddingHorizontal: ESPACAMENTO.lg,
+    paddingBottom: ESPACAMENTO.xxl + 8,
   },
   separador: {
     height: 10,
   },
+  // ESTADO VAZIO
   vazioContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 20,
+    paddingVertical: 50,
+    paddingHorizontal: ESPACAMENTO.lg,
+  },
+  circuloIconeVazio: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: CORES.fundoSuperficie,
+    borderWidth: 1,
+    borderColor: CORES.borda,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: ESPACAMENTO.md,
   },
   vazioTitulo: {
-    color: '#1E4C8A',
-    fontSize: 16,
-    fontWeight: 'bold',
+    color: CORES.textoPrincipal,
+    fontSize: 17,
+    fontWeight: '800',
     textAlign: 'center',
   },
   vazioSubtitulo: {
-    color: '#2B6CB0',
-    fontSize: 14,
+    color: CORES.textoSecundario,
+    fontSize: 13,
     textAlign: 'center',
     marginTop: 6,
-    marginBottom: 16,
+    lineHeight: 18,
+    marginBottom: ESPACAMENTO.lg,
   },
-  botaoAcao: {
-    backgroundColor: '#F58220',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
+  botaoResetarVazio: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: CORES.laranjaCs,
+    paddingVertical: 11,
+    paddingHorizontal: 18,
+    borderRadius: BORDAS.md,
+    gap: 6,
   },
-  textoBotaoAcao: {
-    color: '#0F1923',
-    fontSize: 15,
-    fontWeight: 'bold',
+  textoBotaoResetarVazio: {
+    color: CORES.textoInvertido,
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  // MODAIS
+  modalSafeArea: {
+    flex: 1,
+    backgroundColor: CORES.fundoApp,
+  },
+  modalCabecalho: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: ESPACAMENTO.lg,
+    paddingVertical: ESPACAMENTO.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: CORES.borda,
+  },
+  modalTitulo: {
+    color: CORES.textoPrincipal,
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  modalSubtitulo: {
+    color: CORES.textoSecundario,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  modalBotaoFecharIcone: {
+    width: 36,
+    height: 36,
+    borderRadius: BORDAS.sm,
+    backgroundColor: CORES.fundoSuperficie,
+    borderWidth: 1,
+    borderColor: CORES.borda,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  listaModal: {
+    flex: 1,
+  },
+  conteudoListaModal: {
+    padding: ESPACAMENTO.lg,
+    gap: 8,
+  },
+  opcaoModal: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: CORES.fundoCard,
+    borderWidth: 1,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.md,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  opcaoModalAtiva: {
+    borderColor: CORES.laranjaCs,
+    backgroundColor: 'rgba(245, 130, 32, 0.12)',
+  },
+  opcaoModalConteudo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  pontoRaridadeOpcao: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 10,
+  },
+  textoOpcaoModal: {
+    color: CORES.textoPrincipal,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  textoOpcaoModalAtiva: {
+    color: CORES.laranjaCs,
+    fontWeight: '800',
+  },
+  modalRodape: {
+    padding: ESPACAMENTO.lg,
+    borderTopWidth: 1,
+    borderTopColor: CORES.borda,
+  },
+  botaoConfirmarModal: {
+    backgroundColor: CORES.fundoSuperficie,
+    borderWidth: 1,
+    borderColor: CORES.bordaDestaque,
+    borderRadius: BORDAS.md,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  textoBotaoConfirmarModal: {
+    color: CORES.textoPrincipal,
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
 });

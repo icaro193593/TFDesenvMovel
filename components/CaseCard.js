@@ -1,6 +1,9 @@
+import React from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { CORES, ESPACAMENTO, BORDAS } from '../constants/cs2Theme';
 
-// Card customizado para exibição de uma caixa do CS2 na lista
+// Card em grade de alta precisão para exibição de uma caixa do CS2
 export default function CaseCard({ item, onPress }) {
   const totalSkins = item.contains ? item.contains.length : 0;
   const temRaras = item.contains_rare && item.contains_rare.length > 0;
@@ -8,9 +11,10 @@ export default function CaseCard({ item, onPress }) {
   return (
     <TouchableOpacity
       style={styles.card}
-      activeOpacity={0.7}
+      activeOpacity={0.82}
       onPress={() => onPress && onPress(item)}
     >
+      {/* Container da imagem sobre fundo escuro tático */}
       <View style={styles.containerImagem}>
         {item.image ? (
           <Image
@@ -20,29 +24,36 @@ export default function CaseCard({ item, onPress }) {
           />
         ) : (
           <View style={styles.semImagem}>
+            <MaterialIcons name="inventory-2" size={32} color={CORES.textoMudo} />
             <Text style={styles.textoSemImagem}>Sem imagem</Text>
           </View>
         )}
       </View>
 
+      {/* Conteúdo informativo do card */}
       <View style={styles.conteudo}>
         <Text style={styles.nomeCaixa} numberOfLines={2}>
           {item.name}
         </Text>
 
+        {/* Linha de Badges refinadas */}
         <View style={styles.linhaBadge}>
-          <Text style={styles.badgeSkins}>
-            {totalSkins} skins
-          </Text>
+          <View style={styles.badgeSkins}>
+            <MaterialIcons name="layers" size={12} color={CORES.azulClaro} />
+            <Text style={styles.textoBadgeSkins}>{totalSkins} skins</Text>
+          </View>
+
           {temRaras && (
-            <Text style={styles.badgeRaras}>
-              ★ Raras
-            </Text>
+            <View style={styles.badgeRaras}>
+              <Text style={styles.textoBadgeRaras}>★ Raras</Text>
+            </View>
           )}
         </View>
 
+        {/* Botão de ação estilizado */}
         <View style={styles.botaoAbrir}>
-          <Text style={styles.textoBotaoAbrir}>Abrir Caixa ›</Text>
+          <Text style={styles.textoBotaoAbrir}>Abrir Caixa</Text>
+          <MaterialIcons name="chevron-right" size={16} color={CORES.textoInvertido} />
         </View>
       </View>
     </TouchableOpacity>
@@ -52,84 +63,106 @@ export default function CaseCard({ item, onPress }) {
 const styles = StyleSheet.create({
   card: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.fundoCard,
     borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 8,
-    padding: 12,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.md,
+    padding: ESPACAMENTO.md,
     margin: 6,
     alignItems: 'center',
     justifyContent: 'space-between',
-    minHeight: 220,
+    minHeight: 236,
   },
   containerImagem: {
     width: '100%',
-    height: 110,
-    backgroundColor: '#EBF4FC',
-    borderRadius: 6,
+    height: 112,
+    backgroundColor: CORES.fundoInput,
+    borderRadius: BORDAS.sm,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: ESPACAMENTO.sm,
+    borderWidth: 1,
+    borderColor: CORES.bordaSuave,
   },
   imagem: {
-    width: 100,
-    height: 95,
+    width: 104,
+    height: 96,
   },
   semImagem: {
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 4,
   },
   textoSemImagem: {
-    color: '#2B6CB0',
-    fontSize: 12,
+    color: CORES.textoMudo,
+    fontSize: 11,
+    fontWeight: '600',
   },
   conteudo: {
     width: '100%',
     alignItems: 'center',
   },
   nomeCaixa: {
-    color: '#1E3A5F',
-    fontSize: 14,
+    color: CORES.textoPrincipal,
+    fontSize: 13,
     fontWeight: 'bold',
     textAlign: 'center',
     minHeight: 36,
+    lineHeight: 18,
   },
   linhaBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 6,
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    marginTop: ESPACAMENTO.xs,
     gap: 6,
   },
   badgeSkins: {
-    backgroundColor: '#EBF4FC',
-    color: '#1E4C8A',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: CORES.fundoCardElevado,
+    borderWidth: 1,
+    borderColor: CORES.borda,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: BORDAS.sm,
+    gap: 4,
+  },
+  textoBadgeSkins: {
+    color: CORES.textoSecundario,
     fontSize: 11,
     fontWeight: '600',
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 4,
   },
   badgeRaras: {
-    backgroundColor: '#FFF4E5',
-    color: '#C95F08',
+    backgroundColor: 'rgba(255, 215, 0, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.35)',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: BORDAS.sm,
+  },
+  textoBadgeRaras: {
+    color: CORES.ouro,
     fontSize: 11,
     fontWeight: 'bold',
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 4,
   },
   botaoAbrir: {
-    marginTop: 10,
-    backgroundColor: '#F58220',
-    paddingVertical: 6,
+    marginTop: ESPACAMENTO.md,
+    backgroundColor: CORES.laranjaCs,
+    paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 6,
+    borderRadius: BORDAS.sm,
     width: '100%',
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
   },
   textoBotaoAbrir: {
-    color: '#0F1923',
+    color: CORES.textoInvertido,
     fontSize: 12,
     fontWeight: 'bold',
+    letterSpacing: 0.3,
   },
 });

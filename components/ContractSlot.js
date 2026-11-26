@@ -1,34 +1,55 @@
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { CORES, ESPACAMENTO, BORDAS } from '../constants/cs2Theme';
 
-// Componente reutilizável para cada um dos 3 slots da caixa do contrato de troca
+/**
+ * Componente reutilizável para cada um dos 3 slots do Contrato de Trocas CS2.
+ * Possui 2 estados visuais impecáveis:
+ * - Vazio: borda tracejada tática, ícone estilizado de adicionar, indicador "Slot 1/2/3"
+ * - Preenchido: imagem nítida, tag StatTrak™ (se houver), nome, wear, chip com cor oficial da raridade e botão de remoção
+ */
 export default function ContractSlot({ item, indice, onRemover }) {
   if (!item) {
     return (
       <View style={styles.slotVazio}>
         <View style={styles.circuloIconeVazio}>
-          <MaterialIcons name="add" size={24} color="#68A3E5" />
+          <MaterialIcons name="add" size={20} color={CORES.laranjaCs} />
         </View>
         <Text style={styles.textoSlotVazio}>Slot {indice + 1}</Text>
-        <Text style={styles.subtextoSlotVazio}>Vazio</Text>
+        <View style={styles.badgeSlotLivre}>
+          <Text style={styles.subtextoSlotVazio}>VAZIO</Text>
+        </View>
       </View>
     );
   }
 
-  const corRaridade = item.rarity?.color || '#2B6CB0';
+  // Cor oficial da raridade da skin
+  const corRaridade =
+    item.rarity?.color ||
+    CORES.raridades[item.rarity?.name] ||
+    CORES.azulAco;
+  const nomeRaridade = item.rarity?.name || 'Raridade Oficial';
 
   return (
-    <View style={[styles.slotPreenchido, { borderTopColor: corRaridade }]}>
-      {/* Botão para remover a skin do contrato */}
+    <View style={[styles.slotPreenchido, { borderColor: corRaridade }]}>
+      {/* Botão de remoção (X) no topo direito com fundo escuro e toque preciso */}
       <TouchableOpacity
         style={styles.botaoRemoverSlot}
         activeOpacity={0.7}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         onPress={() => onRemover && onRemover(item)}
       >
-        <MaterialIcons name="close" size={16} color="#FFFFFF" />
+        <MaterialIcons name="close" size={12} color="#FFFFFF" />
       </TouchableOpacity>
 
-      {/* Imagem da Skin */}
+      {/* Indicador StatTrak™ no topo esquerdo quando aplicável */}
+      {item.isStatTrak && (
+        <View style={styles.badgeStatTrakSlot}>
+          <Text style={styles.textoStatTrakSlot}>ST™</Text>
+        </View>
+      )}
+
+      {/* Imagem nítida da skin */}
       <View style={styles.containerImagemSlot}>
         {item.image ? (
           <Image
@@ -43,7 +64,7 @@ export default function ContractSlot({ item, indice, onRemover }) {
         )}
       </View>
 
-      {/* Nome e Condição */}
+      {/* Nome e Desgaste (Wear) */}
       <View style={styles.infoSlot}>
         <Text style={styles.nomeSkinSlot} numberOfLines={1}>
           {item.name}
@@ -53,8 +74,12 @@ export default function ContractSlot({ item, indice, onRemover }) {
         </Text>
       </View>
 
-      {/* Faixa inferior da raridade */}
-      <View style={[styles.faixaRaridade, { backgroundColor: corRaridade }]} />
+      {/* Chip/Badge inferior com a cor oficial da raridade (borda completa sem faixas) */}
+      <View style={[styles.chipRaridadeSlot, { backgroundColor: `${corRaridade}22`, borderColor: `${corRaridade}66` }]}>
+        <Text style={[styles.textoChipRaridadeSlot, { color: corRaridade }]} numberOfLines={1}>
+          {nomeRaridade}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -62,48 +87,58 @@ export default function ContractSlot({ item, indice, onRemover }) {
 const styles = StyleSheet.create({
   slotVazio: {
     flex: 1,
-    height: 130,
-    backgroundColor: '#0F172A',
+    height: 140,
+    backgroundColor: CORES.fundoSuperficie,
     borderWidth: 1.5,
-    borderColor: '#334155',
+    borderColor: CORES.borda,
     borderStyle: 'dashed',
-    borderRadius: 8,
+    borderRadius: BORDAS.md,
     marginHorizontal: 4,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 6,
+    padding: ESPACAMENTO.xs,
   },
   circuloIconeVazio: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#1E293B',
+    width: 36,
+    height: 36,
+    borderRadius: BORDAS.pill,
+    backgroundColor: CORES.fundoCardElevado,
+    borderWidth: 1,
+    borderColor: CORES.bordaDestaque,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: ESPACAMENTO.xs,
   },
   textoSlotVazio: {
-    color: '#94A3B8',
+    color: CORES.textoPrincipal,
     fontSize: 12,
-    fontWeight: 'bold',
+    fontWeight: '700',
+  },
+  badgeSlotLivre: {
+    backgroundColor: CORES.fundoCard,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: BORDAS.sm,
+    marginTop: 3,
   },
   subtextoSlotVazio: {
-    color: '#64748B',
-    fontSize: 10,
-    marginTop: 2,
+    color: CORES.textoMudo,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.8,
   },
   slotPreenchido: {
     flex: 1,
-    height: 130,
-    backgroundColor: '#1E293B',
-    borderWidth: 1,
-    borderColor: '#334155',
-    borderTopWidth: 4,
-    borderRadius: 8,
+    height: 140,
+    backgroundColor: CORES.fundoCard,
+    borderWidth: 1.5,
+    borderRadius: BORDAS.md,
     marginHorizontal: 4,
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 6,
+    paddingTop: ESPACAMENTO.xs,
+    paddingBottom: 4,
+    paddingHorizontal: 4,
     position: 'relative',
     overflow: 'hidden',
   },
@@ -111,7 +146,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 4,
     right: 4,
-    backgroundColor: '#EF4444',
+    backgroundColor: CORES.erro,
     width: 20,
     height: 20,
     borderRadius: 10,
@@ -119,48 +154,75 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 10,
   },
+  badgeStatTrakSlot: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    backgroundColor: CORES.laranjaEscuro,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
+    zIndex: 10,
+  },
+  textoStatTrakSlot: {
+    color: CORES.textoPrincipal,
+    fontSize: 8,
+    fontWeight: '900',
+  },
   containerImagemSlot: {
     width: '100%',
-    height: 60,
+    height: 58,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 6,
+    marginTop: 4,
   },
   imagemSlot: {
-    width: '85%',
-    height: 55,
+    width: '88%',
+    height: 52,
   },
   semImagemSlot: {
-    width: 45,
-    height: 45,
-    borderRadius: 4,
-    backgroundColor: '#334155',
+    width: 44,
+    height: 44,
+    borderRadius: BORDAS.sm,
+    backgroundColor: CORES.fundoSuperficie,
     justifyContent: 'center',
     alignItems: 'center',
   },
   textoSemImagemSlot: {
-    color: '#94A3B8',
+    color: CORES.textoSecundario,
     fontSize: 10,
+    fontWeight: '700',
   },
   infoSlot: {
     width: '100%',
-    paddingHorizontal: 6,
-    paddingBottom: 4,
+    paddingHorizontal: 4,
     alignItems: 'center',
   },
   nomeSkinSlot: {
-    color: '#F8FAFC',
+    color: CORES.textoPrincipal,
     fontSize: 11,
-    fontWeight: 'bold',
+    fontWeight: '700',
     textAlign: 'center',
   },
   wearSlot: {
-    color: '#94A3B8',
+    color: CORES.textoSecundario,
     fontSize: 9,
+    fontWeight: '500',
     marginTop: 1,
   },
-  faixaRaridade: {
-    width: '100%',
-    height: 3,
+  chipRaridadeSlot: {
+    width: '94%',
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    borderRadius: 4,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  textoChipRaridadeSlot: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
 });

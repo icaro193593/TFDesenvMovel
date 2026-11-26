@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Image,
   Modal,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -19,19 +20,20 @@ import {
   formatarPrecoMoeda,
   obterMoedaSelecionada,
 } from '../services/priceService';
+import { CORES, ESPACAMENTO, BORDAS } from '../constants/cs2Theme';
 
 // Chave utilizada para persistência do inventário local do usuário
 const STORAGE_KEY_INVENTARIO = '@inventario_skins';
 
 // Opções de ordenação disponíveis no modal de filtro
 const OPCOES_ORDENACAO = [
-  { id: 'maior_preco', rotulo: 'Maior preço' },
-  { id: 'menor_preco', rotulo: 'Menor preço' },
   { id: 'mais_recente', rotulo: 'Mais recente' },
   { id: 'menos_recente', rotulo: 'Menos recente' },
+  { id: 'maior_preco', rotulo: 'Maior preço' },
+  { id: 'menor_preco', rotulo: 'Menor preço' },
 ];
 
-// Extrai timestamp numérico (ms) de campos conhecidos ou do idInventario/idUnico gerado via Date.now()
+// Extrai timestamp numérico (ms) de campos conhecidos ou do idInventario/idUnico
 const obterTimestampItem = (item) => {
   if (!item) return null;
   if (typeof item.timestamp === 'number' && Number.isFinite(item.timestamp)) {
@@ -126,6 +128,22 @@ export default function InventarioScreen() {
     );
   };
 
+  // Diálogo de confirmação para limpar o inventário completo
+  const confirmarLimpezaInventario = () => {
+    Alert.alert(
+      'Limpar Inventário',
+      'Tem certeza de que deseja remover todas as skins do seu inventário? Esta ação é irreversível.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Limpar Tudo',
+          style: 'destructive',
+          onPress: limparInventarioCompleto,
+        },
+      ]
+    );
+  };
+
   // Remove todos os itens do inventário de uma só vez
   const limparInventarioCompleto = () => {
     setItens([]);
@@ -150,7 +168,13 @@ export default function InventarioScreen() {
       const nome = (item.name || '').toLowerCase();
       const caixa = (item.nomeCaixaOrigem || '').toLowerCase();
       const wear = (item.wearNome || '').toLowerCase();
-      return nome.includes(termo) || caixa.includes(termo) || wear.includes(termo);
+      const raridade = (item.rarity?.name || '').toLowerCase();
+      return (
+        nome.includes(termo) ||
+        caixa.includes(termo) ||
+        wear.includes(termo) ||
+        raridade.includes(termo)
+      );
     })
     .sort((a, b) => {
       if (ordenacao === 'maior_preco') {
@@ -184,69 +208,86 @@ export default function InventarioScreen() {
     return acc + obterValorNaMoedaAtual(curr);
   }, 0);
 
-  // Exibição de carregamento inicial (somente no primeiro carregamento)
+  // Exibição de carregamento inicial (somente no primeiro carregamento com inventário vazio)
   if (isLoading && itens.length === 0) {
     return (
       <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.centralizado}>
-        <ActivityIndicator size="large" color="#F58220" />
+        <ActivityIndicator size="large" color={CORES.laranjaCs} />
         <Text style={styles.textoCarregando}>Carregando seu inventário...</Text>
       </SafeAreaView>
     );
   }
 
+  // Obter rótulo legível da ordenação atual
+  const rotuloOrdenacaoAtiva =
+    OPCOES_ORDENACAO.find((o) => o.id === ordenacao)?.rotulo || 'Mais recente';
+
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.container}>
-      {/* Cabeçalho com Título e Subtítulo */}
+      {/* Banner de Portfólio no Topo */}
       <View style={styles.cabecalho}>
-        <View style={styles.linhaTitulo}>
-          <View>
-            <Text style={styles.titulo}>Meu Inventário</Text>
+        <View style={styles.linhaTopoBanner}>
+          <View style={styles.colunaTituloBanner}>
+            <View style={styles.linhaTituloComIcone}>
+              <MaterialIcons name="account-balance-wallet" size={22} color={CORES.laranjaCs} />
+              <Text style={styles.titulo}>Meu Inventário</Text>
+            </View>
             <Text style={styles.subtitulo}>
               {itens.length} {itens.length === 1 ? 'skin guardada' : 'skins guardadas'}
             </Text>
           </View>
+
+          {itens.length > 0 && (
+            <TouchableOpacity
+              style={styles.botaoLimparTudo}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              onPress={confirmarLimpezaInventario}
+            >
+              <MaterialIcons name="delete-sweep" size={17} color={CORES.erro} />
+              <Text style={styles.textoLimparTudo}>Limpar tudo</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
-        {/* Card Resumo do Inventário */}
+        {/* Card de Resumo de Valor de Mercado */}
         {itens.length > 0 && (
           <View style={styles.cardResumo}>
             <View style={styles.colunaResumo}>
-              <Text style={styles.rotuloResumo}>VALOR TOTAL ESTIMADO</Text>
+              <Text style={styles.rotuloResumo}>VALOR TOTAL ESTIMADO DO PORTFÓLIO</Text>
               <Text style={styles.valorResumo}>
                 {formatarPrecoMoeda(valorTotalInventario, moedaAtual)}
               </Text>
             </View>
 
-            <TouchableOpacity
-              style={styles.botaoLimparTudo}
-              activeOpacity={0.7}
-              onPress={limparInventarioCompleto}
-            >
-              <MaterialIcons name="delete-sweep" size={18} color="#EF4444" />
-              <Text style={styles.textoLimparTudo}>Limpar tudo</Text>
-            </TouchableOpacity>
+            <View style={styles.badgeMoedaAtiva}>
+              <MaterialIcons name="monetization-on" size={14} color={CORES.ouro} />
+              <Text style={styles.textoBadgeMoedaAtiva}>{moedaAtual}</Text>
+            </View>
           </View>
         )}
       </View>
 
-      {/* Barra de Busca e Botão de Filtro lado a lado */}
+      {/* Barra de Busca e Botão de Ordenação */}
       {itens.length > 0 && (
         <View style={styles.linhaBuscaFiltro}>
           <View style={styles.barraBusca}>
+            <MaterialIcons name="search" size={20} color={CORES.textoMudo} style={styles.iconeBusca} />
             <TextInput
               style={styles.campoBusca}
               value={busca}
               onChangeText={setBusca}
-              placeholder="Buscar por skin, arma ou caixa..."
-              placeholderTextColor="#5D79AE"
+              placeholder="Buscar por skin, arma, caixa ou raridade..."
+              placeholderTextColor={CORES.textoMudo}
             />
             {busca.length > 0 && (
               <TouchableOpacity
                 style={styles.botaoLimparBusca}
                 activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 onPress={() => setBusca('')}
               >
-                <Text style={styles.textoLimparBusca}>Limpar</Text>
+                <MaterialIcons name="close" size={16} color={CORES.textoSecundario} />
               </TouchableOpacity>
             )}
           </View>
@@ -263,8 +304,23 @@ export default function InventarioScreen() {
             <MaterialIcons
               name="filter-list"
               size={22}
-              color={ordenacao !== 'mais_recente' ? '#1E4C8A' : '#2B6CB0'}
+              color={ordenacao !== 'mais_recente' ? CORES.laranjaCs : CORES.textoSecundario}
             />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Tag informativa quando há ordenação ativa diferente do padrão */}
+      {itens.length > 0 && ordenacao !== 'mais_recente' && (
+        <View style={styles.faixaFiltroAtivo}>
+          <Text style={styles.textoFaixaFiltroAtivo}>
+            Ordenado por: <Text style={styles.destaqueFaixaFiltro}>{rotuloOrdenacaoAtiva}</Text>
+          </Text>
+          <TouchableOpacity
+            onPress={() => setOrdenacao('mais_recente')}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          >
+            <Text style={styles.botaoResetarFiltro}>Restaurar padrão</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -276,12 +332,23 @@ export default function InventarioScreen() {
         contentContainerStyle={styles.conteudoLista}
         showsVerticalScrollIndicator={false}
         renderItem={({ item }) => {
-          const corRaridade = item.rarity?.color || '#2B6CB0';
           const nomeRaridade = item.rarity?.name || 'Raridade Oficial';
+          const corRaridade =
+            item.rarity?.color ||
+            CORES.raridades[nomeRaridade] ||
+            CORES.azulAco;
+
+          // Float numérico para o medidor visual de desgaste
+          const floatNum =
+            typeof item.floatValor === 'number'
+              ? item.floatValor
+              : typeof item.floatValor === 'string'
+              ? parseFloat(item.floatValor)
+              : null;
 
           return (
-            <View style={[styles.cardItem, { borderLeftColor: corRaridade }]}>
-              {/* Imagem da Skin */}
+            <View style={styles.cardItem}>
+              {/* Imagem nítida da Skin em container escuro suave */}
               <View style={styles.containerImagem}>
                 {item.image ? (
                   <Image
@@ -296,31 +363,63 @@ export default function InventarioScreen() {
                 )}
               </View>
 
-              {/* Informações Centrais */}
+              {/* Informações Centrais da Skin */}
               <View style={styles.infoCentral}>
                 <View style={styles.linhaNome}>
                   {item.isStatTrak && (
                     <Text style={styles.tagStatTrak}>ST™ </Text>
                   )}
-                  <Text style={styles.nomeSkin} numberOfLines={2}>
+                  <Text style={styles.nomeSkin} numberOfLines={1}>
                     {item.name}
                   </Text>
                 </View>
 
-                <Text style={[styles.raridade, { color: corRaridade }]}>
-                  {nomeRaridade}
-                </Text>
+                {/* Chip com a cor oficial da raridade (borda completa sem faixas) */}
+                <View style={styles.linhaChips}>
+                  <View
+                    style={[
+                      styles.chipRaridade,
+                      {
+                        backgroundColor: `${corRaridade}22`,
+                        borderColor: `${corRaridade}66`,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.textoChipRaridade, { color: corRaridade }]}>
+                      {nomeRaridade}
+                    </Text>
+                  </View>
 
-                {item.wearNome && (
-                  <Text style={styles.condicao}>
-                    {item.wearNome}
-                    {item.floatValor ? ` • Float: ${item.floatValor}` : ''}
-                  </Text>
+                  {item.wearNome && (
+                    <Text style={styles.condicao} numberOfLines={1}>
+                      {item.wearNome}
+                    </Text>
+                  )}
+                </View>
+
+                {/* Medidor visual tático de Wear quando o float estiver disponível */}
+                {floatNum !== null && !isNaN(floatNum) && (
+                  <View style={styles.containerTrilhoWear}>
+                    <View style={styles.trilhoWear}>
+                      <View
+                        style={[
+                          styles.barraProgressoWear,
+                          {
+                            width: `${Math.min(Math.max(floatNum * 100, 4), 100)}%`,
+                            backgroundColor: corRaridade,
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.textoFloatNumero}>
+                      {floatNum.toFixed(4)}
+                    </Text>
+                  </View>
                 )}
 
                 {item.nomeCaixaOrigem && (
                   <Text style={styles.caixaOrigem} numberOfLines={1}>
-                    Caixa: {item.nomeCaixaOrigem}
+                    Origem: {item.nomeCaixaOrigem}
                   </Text>
                 )}
 
@@ -329,20 +428,19 @@ export default function InventarioScreen() {
                     {formatarPrecoMoeda(obterValorNaMoedaAtual(item), moedaAtual)}
                   </Text>
                   {item.dataObtencao && (
-                    <Text style={styles.dataItem}>
-                      {item.dataObtencao}
-                    </Text>
+                    <Text style={styles.dataItem}>{item.dataObtencao}</Text>
                   )}
                 </View>
               </View>
 
-              {/* Botão de Remover do Inventário */}
+              {/* Botão de Remoção elegante e discreto */}
               <TouchableOpacity
                 style={styles.botaoRemover}
                 activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 onPress={() => removerItem(item.idInventario)}
               >
-                <MaterialIcons name="delete-outline" size={22} color="#EF4444" />
+                <MaterialIcons name="delete-outline" size={20} color={CORES.erro} />
                 <Text style={styles.textoBotaoRemover}>Remover</Text>
               </TouchableOpacity>
             </View>
@@ -351,7 +449,7 @@ export default function InventarioScreen() {
         ListEmptyComponent={() => (
           <View style={styles.vazioContainer}>
             <View style={styles.circuloIconeVazio}>
-              <MaterialIcons name="inventory-2" size={48} color="#2B6CB0" />
+              <MaterialIcons name="inventory-2" size={44} color={CORES.laranjaCs} />
             </View>
             <Text style={styles.vazioTitulo}>
               {busca.length > 0
@@ -360,8 +458,8 @@ export default function InventarioScreen() {
             </Text>
             <Text style={styles.vazioSubtitulo}>
               {busca.length > 0
-                ? 'Tente buscar com outros termos.'
-                : 'Abra caixas na aba "Abertura de Caixas" e clique em "Guardar no Inventário" para colecionar suas skins aqui!'}
+                ? 'Tente buscar com outros termos de arma, skin ou coleção.'
+                : 'Abra caixas na aba Caixas e guarde suas skins para colecioná-las ou combiná-las em Contratos de Troca!'}
             </Text>
 
             {busca.length > 0 ? (
@@ -370,6 +468,7 @@ export default function InventarioScreen() {
                 activeOpacity={0.7}
                 onPress={() => setBusca('')}
               >
+                <MaterialIcons name="refresh" size={18} color={CORES.textoInvertido} />
                 <Text style={styles.textoBotaoAcaoVazio}>Limpar busca</Text>
               </TouchableOpacity>
             ) : (
@@ -378,7 +477,7 @@ export default function InventarioScreen() {
                 activeOpacity={0.7}
                 onPress={() => router.push('/caixas')}
               >
-                <MaterialIcons name="vpn-key" size={18} color="#0F1923" />
+                <MaterialIcons name="vpn-key" size={18} color={CORES.textoInvertido} />
                 <Text style={styles.textoBotaoAcaoVazio}>Abrir Caixas Agora</Text>
               </TouchableOpacity>
             )}
@@ -391,44 +490,61 @@ export default function InventarioScreen() {
         visible={modalOrdenacaoAberto}
         onRequestClose={() => setModalOrdenacaoAberto(false)}
         animationType="slide"
+        transparent
       >
-        <SafeAreaView style={styles.modalContainer}>
-          <Text style={styles.modalTitulo}>Ordenar Inventário</Text>
-          <FlatList
-            style={styles.listaModal}
-            data={OPCOES_ORDENACAO}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => {
-              const ativa = item.id === ordenacao;
-              return (
-                <TouchableOpacity
-                  style={[styles.opcaoModal, ativa && styles.opcaoModalAtiva]}
-                  activeOpacity={0.7}
-                  onPress={() => {
-                    setOrdenacao(item.id);
-                    setModalOrdenacaoAberto(false);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.textoOpcaoModal,
-                      ativa && styles.textoOpcaoModalAtiva,
-                    ]}
+        <View style={styles.modalFundo}>
+          <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.modalContainer}>
+            <View style={styles.modalCabecalho}>
+              <View style={styles.linhaModalTitulo}>
+                <MaterialIcons name="sort" size={22} color={CORES.laranjaCs} />
+                <Text style={styles.modalTitulo}>Ordenar Inventário</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setModalOrdenacaoAberto(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialIcons name="close" size={20} color={CORES.textoSecundario} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.listaModal}>
+              {OPCOES_ORDENACAO.map((opcao) => {
+                const ativa = opcao.id === ordenacao;
+                return (
+                  <TouchableOpacity
+                    key={opcao.id}
+                    style={[styles.opcaoModal, ativa && styles.opcaoModalAtiva]}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      setOrdenacao(opcao.id);
+                      setModalOrdenacaoAberto(false);
+                    }}
                   >
-                    {item.rotulo}
-                  </Text>
-                </TouchableOpacity>
-              );
-            }}
-          />
-          <TouchableOpacity
-            style={styles.botaoFecharModal}
-            activeOpacity={0.7}
-            onPress={() => setModalOrdenacaoAberto(false)}
-          >
-            <Text style={styles.textoBotaoFecharModal}>Fechar</Text>
-          </TouchableOpacity>
-        </SafeAreaView>
+                    <Text
+                      style={[
+                        styles.textoOpcaoModal,
+                        ativa && styles.textoOpcaoModalAtiva,
+                      ]}
+                    >
+                      {opcao.rotulo}
+                    </Text>
+                    {ativa && (
+                      <MaterialIcons name="check" size={20} color={CORES.laranjaCs} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <TouchableOpacity
+              style={styles.botaoFecharModal}
+              activeOpacity={0.7}
+              onPress={() => setModalOrdenacaoAberto(false)}
+            >
+              <Text style={styles.textoBotaoFecharModal}>Fechar</Text>
+            </TouchableOpacity>
+          </SafeAreaView>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -437,254 +553,291 @@ export default function InventarioScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.fundoApp,
   },
   centralizado: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    padding: 20,
+    backgroundColor: CORES.fundoApp,
+    padding: ESPACAMENTO.xl,
   },
   textoCarregando: {
-    color: '#1E4C8A',
+    color: CORES.textoPrincipal,
     fontSize: 16,
-    fontWeight: 'bold',
-    marginTop: 12,
+    fontWeight: '700',
+    marginTop: ESPACAMENTO.md,
   },
+
+  // Banner do Portfólio
   cabecalho: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingHorizontal: ESPACAMENTO.lg,
+    paddingTop: ESPACAMENTO.md,
+    paddingBottom: ESPACAMENTO.xs,
   },
-  linhaTitulo: {
+  linhaTopoBanner: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  titulo: {
-    color: '#1E4C8A',
-    fontSize: 22,
-    fontWeight: 'bold',
-  },
-  subtitulo: {
-    color: '#2B6CB0',
-    fontSize: 13,
-    marginTop: 2,
-  },
-  cardResumo: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#EBF4FC',
-    borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 10,
-  },
-  colunaResumo: {
+  colunaTituloBanner: {
     flex: 1,
   },
-  rotuloResumo: {
-    color: '#2B6CB0',
-    fontSize: 10,
-    fontWeight: 'bold',
+  linhaTituloComIcone: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: ESPACAMENTO.sm,
+  },
+  titulo: {
+    color: CORES.textoPrincipal,
+    fontSize: 22,
+    fontWeight: '800',
     letterSpacing: 0.5,
   },
-  valorResumo: {
-    color: '#1E3A5F',
-    fontSize: 18,
-    fontWeight: 'bold',
+  subtitulo: {
+    color: CORES.textoSecundario,
+    fontSize: 12.5,
     marginTop: 2,
   },
   botaoLimparTudo: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FEE2E2',
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
     borderWidth: 1,
-    borderColor: '#FCA5A5',
-    borderRadius: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+    borderRadius: BORDAS.sm,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
     gap: 4,
   },
   textoLimparTudo: {
-    color: '#EF4444',
-    fontSize: 12,
-    fontWeight: 'bold',
+    color: CORES.erro,
+    fontSize: 11.5,
+    fontWeight: '700',
   },
+  cardResumo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: CORES.fundoSuperficie,
+    borderWidth: 1,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.md,
+    padding: ESPACAMENTO.md,
+    marginTop: ESPACAMENTO.md,
+  },
+  colunaResumo: {
+    flex: 1,
+  },
+  rotuloResumo: {
+    color: CORES.textoMudo,
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  valorResumo: {
+    color: CORES.sucesso,
+    fontSize: 22,
+    fontWeight: '900',
+    marginTop: 2,
+    letterSpacing: 0.5,
+  },
+  badgeMoedaAtiva: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: CORES.fundoCardElevado,
+    borderWidth: 1,
+    borderColor: CORES.bordaDestaque,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: BORDAS.sm,
+    gap: 4,
+  },
+  textoBadgeMoedaAtiva: {
+    color: CORES.textoPrincipal,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+
+  // Barra de Busca e Ordenação
   linhaBuscaFiltro: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 16,
-    marginTop: 6,
-    marginBottom: 8,
-    gap: 8,
+    marginHorizontal: ESPACAMENTO.lg,
+    marginTop: ESPACAMENTO.md,
+    marginBottom: ESPACAMENTO.sm,
+    gap: ESPACAMENTO.sm,
   },
   barraBusca: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.fundoInput,
     borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.md,
+    paddingHorizontal: ESPACAMENTO.md,
     height: 42,
+  },
+  iconeBusca: {
+    marginRight: ESPACAMENTO.sm,
   },
   campoBusca: {
     flex: 1,
-    color: '#1E3A5F',
-    fontSize: 14,
+    color: CORES.textoPrincipal,
+    fontSize: 13,
   },
   botaoLimparBusca: {
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-  },
-  textoLimparBusca: {
-    color: '#2B6CB0',
-    fontSize: 12,
-    fontWeight: '600',
+    padding: 4,
   },
   botaoFiltro: {
     width: 42,
     height: 42,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.fundoSuperficie,
     borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 8,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.md,
     justifyContent: 'center',
     alignItems: 'center',
   },
   botaoFiltroAtivo: {
-    backgroundColor: '#EBF4FC',
-    borderColor: '#1E4C8A',
+    backgroundColor: CORES.fundoCardElevado,
+    borderColor: CORES.laranjaCs,
     borderWidth: 1.5,
   },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-  },
-  modalTitulo: {
-    color: '#1E4C8A',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 14,
-  },
-  listaModal: {
-    flex: 1,
-  },
-  opcaoModal: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 8,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    marginBottom: 8,
-  },
-  opcaoModalAtiva: {
-    backgroundColor: '#1E4C8A',
-    borderColor: '#1E4C8A',
-  },
-  textoOpcaoModal: {
-    color: '#1E4C8A',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  textoOpcaoModalAtiva: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-  },
-  botaoFecharModal: {
-    backgroundColor: '#EBF4FC',
-    borderWidth: 1,
-    borderColor: '#2B6CB0',
-    borderRadius: 8,
-    paddingVertical: 12,
+  faixaFiltroAtivo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 12,
+    marginHorizontal: ESPACAMENTO.lg,
+    marginBottom: ESPACAMENTO.sm,
+    paddingHorizontal: ESPACAMENTO.sm,
   },
-  textoBotaoFecharModal: {
-    color: '#1E4C8A',
-    fontSize: 16,
-    fontWeight: 'bold',
+  textoFaixaFiltroAtivo: {
+    color: CORES.textoSecundario,
+    fontSize: 11,
   },
+  destaqueFaixaFiltro: {
+    color: CORES.laranjaBrilhante,
+    fontWeight: '700',
+  },
+  botaoResetarFiltro: {
+    color: CORES.laranjaCs,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+
+  // Lista de Itens do Inventário
   conteudoLista: {
-    paddingHorizontal: 16,
-    paddingTop: 4,
+    paddingHorizontal: ESPACAMENTO.lg,
+    paddingTop: ESPACAMENTO.xs,
     paddingBottom: 28,
-    gap: 10,
+    gap: ESPACAMENTO.sm,
   },
   cardItem: {
     flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.fundoCard,
     borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderLeftWidth: 5,
-    borderRadius: 8,
-    padding: 10,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.md,
+    padding: ESPACAMENTO.sm,
     alignItems: 'center',
   },
   containerImagem: {
-    width: 75,
-    height: 65,
-    backgroundColor: '#EBF4FC',
-    borderRadius: 6,
+    width: 78,
+    height: 68,
+    backgroundColor: CORES.fundoSuperficie,
+    borderRadius: BORDAS.sm,
+    borderWidth: 1,
+    borderColor: CORES.bordaSuave,
     justifyContent: 'center',
     alignItems: 'center',
   },
   imagemSkin: {
-    width: 70,
-    height: 55,
+    width: 72,
+    height: 58,
   },
   semImagem: {
-    width: 70,
-    height: 55,
+    width: 60,
+    height: 50,
     justifyContent: 'center',
     alignItems: 'center',
   },
   textoSemImagem: {
-    color: '#2B6CB0',
+    color: CORES.textoMudo,
     fontSize: 11,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   infoCentral: {
     flex: 1,
-    marginLeft: 12,
-    marginRight: 6,
+    marginLeft: ESPACAMENTO.md,
+    marginRight: ESPACAMENTO.sm,
   },
   linhaNome: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   tagStatTrak: {
-    color: '#C95F08',
-    fontSize: 13,
-    fontWeight: 'bold',
+    color: CORES.laranjaCs,
+    fontSize: 12.5,
+    fontWeight: '900',
   },
   nomeSkin: {
-    color: '#1E3A5F',
-    fontSize: 14,
-    fontWeight: 'bold',
+    color: CORES.textoPrincipal,
+    fontSize: 13.5,
+    fontWeight: '700',
     flexShrink: 1,
   },
-  raridade: {
-    fontSize: 11,
-    fontWeight: 'bold',
-    marginTop: 2,
+  linhaChips: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 3,
+  },
+  chipRaridade: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  textoChipRaridade: {
+    fontSize: 9.5,
+    fontWeight: '800',
   },
   condicao: {
-    color: '#2B6CB0',
-    fontSize: 11,
-    marginTop: 1,
+    color: CORES.textoSecundario,
+    fontSize: 10,
+    flexShrink: 1,
   },
+
+  // Medidor de Wear
+  containerTrilhoWear: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 6,
+  },
+  trilhoWear: {
+    flex: 1,
+    height: 3,
+    backgroundColor: CORES.fundoSuperficie,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  barraProgressoWear: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  textoFloatNumero: {
+    color: CORES.textoMudo,
+    fontSize: 9,
+    fontWeight: '600',
+  },
+
   caixaOrigem: {
-    color: '#5D79AE',
-    fontSize: 11,
-    marginTop: 1,
+    color: CORES.textoMudo,
+    fontSize: 10,
+    marginTop: 3,
   },
   linhaPrecoData: {
     flexDirection: 'row',
@@ -693,69 +846,148 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   precoItem: {
-    color: '#059669',
+    color: CORES.sucesso,
     fontSize: 14,
-    fontWeight: 'bold',
+    fontWeight: '900',
   },
   dataItem: {
-    color: '#94A3B8',
-    fontSize: 10,
+    color: CORES.textoMudo,
+    fontSize: 9.5,
   },
   botaoRemover: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 6,
     paddingHorizontal: 8,
-    borderRadius: 6,
-    backgroundColor: '#FEF2F2',
+    borderRadius: BORDAS.sm,
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.25)',
   },
   textoBotaoRemover: {
-    color: '#EF4444',
-    fontSize: 10,
-    fontWeight: 'bold',
+    color: CORES.erro,
+    fontSize: 9.5,
+    fontWeight: '700',
     marginTop: 2,
   },
+
+  // Estado Vazio
   vazioContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 50,
-    paddingHorizontal: 24,
+    paddingVertical: 48,
+    paddingHorizontal: ESPACAMENTO.lg,
   },
   circuloIconeVazio: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#EBF4FC',
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: CORES.fundoSuperficie,
+    borderWidth: 1,
+    borderColor: CORES.bordaDestaque,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: ESPACAMENTO.md,
   },
   vazioTitulo: {
-    color: '#1E4C8A',
-    fontSize: 18,
-    fontWeight: 'bold',
+    color: CORES.textoPrincipal,
+    fontSize: 17,
+    fontWeight: '800',
     textAlign: 'center',
   },
   vazioSubtitulo: {
-    color: '#2B6CB0',
-    fontSize: 14,
+    color: CORES.textoSecundario,
+    fontSize: 13,
     textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 20,
-    lineHeight: 20,
+    marginTop: 6,
+    marginBottom: ESPACAMENTO.xl,
+    lineHeight: 19,
   },
   botaoAcaoVazio: {
-    backgroundColor: '#F58220',
+    backgroundColor: CORES.laranjaCs,
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 22,
-    borderRadius: 8,
-    gap: 8,
+    borderRadius: BORDAS.md,
+    gap: ESPACAMENTO.sm,
   },
   textoBotaoAcaoVazio: {
-    color: '#0F1923',
+    color: CORES.textoInvertido,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+
+  // Modal de Ordenação
+  modalFundo: {
+    flex: 1,
+    backgroundColor: CORES.fundoModal,
+    justifyContent: 'flex-end',
+  },
+  modalContainer: {
+    backgroundColor: CORES.fundoSuperficie,
+    borderTopLeftRadius: BORDAS.xl,
+    borderTopRightRadius: BORDAS.xl,
+    borderWidth: 1,
+    borderColor: CORES.bordaDestaque,
+    padding: ESPACAMENTO.lg,
+  },
+  modalCabecalho: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: ESPACAMENTO.md,
+  },
+  linhaModalTitulo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: ESPACAMENTO.sm,
+  },
+  modalTitulo: {
+    color: CORES.textoPrincipal,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  listaModal: {
+    gap: ESPACAMENTO.sm,
+    marginVertical: ESPACAMENTO.xs,
+  },
+  opcaoModal: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: CORES.fundoCard,
+    borderWidth: 1,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.md,
+    paddingVertical: 13,
+    paddingHorizontal: ESPACAMENTO.md,
+  },
+  opcaoModalAtiva: {
+    backgroundColor: CORES.fundoCardElevado,
+    borderColor: CORES.laranjaCs,
+  },
+  textoOpcaoModal: {
+    color: CORES.textoSecundario,
     fontSize: 15,
-    fontWeight: 'bold',
+    fontWeight: '600',
+  },
+  textoOpcaoModalAtiva: {
+    color: CORES.laranjaBrilhante,
+    fontWeight: '800',
+  },
+  botaoFecharModal: {
+    backgroundColor: CORES.fundoCard,
+    borderWidth: 1,
+    borderColor: CORES.bordaDestaque,
+    borderRadius: BORDAS.md,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: ESPACAMENTO.md,
+  },
+  textoBotaoFecharModal: {
+    color: CORES.textoPrincipal,
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

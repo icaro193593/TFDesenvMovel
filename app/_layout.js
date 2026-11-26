@@ -3,29 +3,56 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Drawer } from 'expo-router/drawer';
 import { MaterialIcons } from '@expo/vector-icons';
+import { CORES, BORDAS } from '../constants/cs2Theme';
 
 export default function RootLayout() {
   return (
-    // SafeAreaProvider garante que o app respeite entalhes e barras do sistema
+    // SafeAreaProvider envolve toda a aplicação respeitando a hierarquia do Prof. Victor
     <SafeAreaProvider>
-      {/* StatusBar clara para contrastar com o cabeçalho azul CS2 */}
-      <StatusBar style="light" />
+      {/* StatusBar clara para contraste perfeito com o tema escuro tático CS2 */}
+      <StatusBar style="light" backgroundColor={CORES.fundoSuperficie} />
 
       <Drawer
         screenOptions={{
           headerShown: true,
           drawerType: 'front',
           headerStyle: {
-            backgroundColor: '#1E4C8A',
-            borderBottomWidth: 3,
-            borderBottomColor: '#F58220',
+            backgroundColor: CORES.fundoSuperficie,
+            borderBottomWidth: 1,
+            borderBottomColor: CORES.borda,
+            elevation: 0,
+            shadowOpacity: 0,
           },
-          headerTintColor: '#FFFFFF',
-          headerTitleStyle: { fontWeight: 'bold', color: '#FFFFFF' },
-          drawerStyle: { width: 280, backgroundColor: '#FFFFFF' },
-          drawerActiveTintColor: '#C95F08',
-          drawerActiveBackgroundColor: '#FFF3E8',
-          drawerInactiveTintColor: '#1E4C8A',
+          headerTintColor: CORES.textoPrincipal,
+          headerTitleStyle: {
+            fontWeight: '700',
+            fontSize: 18,
+            color: CORES.textoPrincipal,
+            letterSpacing: 0.5,
+          },
+          drawerStyle: {
+            width: 290,
+            backgroundColor: CORES.fundoSuperficie,
+            borderRightWidth: 1,
+            borderRightColor: CORES.borda,
+          },
+          drawerActiveTintColor: CORES.laranjaCs,
+          drawerActiveBackgroundColor: 'rgba(245, 130, 32, 0.12)',
+          drawerInactiveTintColor: CORES.textoSecundario,
+          drawerLabelStyle: {
+            fontSize: 14,
+            fontWeight: '600',
+            marginLeft: -8,
+          },
+          drawerItemStyle: {
+            borderRadius: BORDAS.md,
+            marginHorizontal: 10,
+            marginVertical: 3,
+            paddingHorizontal: 4,
+          },
+          sceneContainerStyle: {
+            backgroundColor: CORES.fundoApp,
+          },
         }}
       >
         <Drawer.Screen
@@ -40,7 +67,7 @@ export default function RootLayout() {
         <Drawer.Screen
           name="catalogo"
           options={{
-            title: 'Catálogo',
+            title: 'Catálogo de Skins',
             drawerIcon: ({ color, size }) => (
               <MaterialIcons name="grid-view" size={size} color={color} />
             ),
@@ -67,9 +94,9 @@ export default function RootLayout() {
         <Drawer.Screen
           name="inventario"
           options={{
-            title: 'Inventário',
+            title: 'Inventário Pessoal',
             drawerIcon: ({ color, size }) => (
-              <MaterialIcons name="shuffle" size={size} color={color} />
+              <MaterialIcons name="inventory" size={size} color={color} />
             ),
           }}
         />

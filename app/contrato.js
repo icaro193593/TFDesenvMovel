@@ -5,7 +5,6 @@ import {
   View,
   TextInput,
   TouchableOpacity,
-  FlatList,
   ActivityIndicator,
   Modal,
   Image,
@@ -16,7 +15,13 @@ import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import ContractSlot from '../components/ContractSlot';
-import { obterPrecoSkin } from '../services/priceService';
+import {
+  obterPrecoSkin,
+  obterMoedaSelecionada,
+  formatarPrecoMoeda,
+  converterValorMoeda,
+} from '../services/priceService';
+import { CORES, ESPACAMENTO, BORDAS } from '../constants/cs2Theme';
 
 // Chave do inventário do usuário no AsyncStorage
 const STORAGE_KEY_INVENTARIO = '@inventario_skins';
@@ -52,6 +57,7 @@ export default function ContratoScreen() {
   // Inventário completo do usuário carregado do AsyncStorage
   const [inventario, setInventario] = useState([]);
   const [isLoadingInventario, setIsLoadingInventario] = useState(true);
+  const [moedaAtual, setMoedaAtual] = useState('USD');
 
   // Catálogo completo de skins da API com mapa de coleções
   const [catalogoCarregado, setCatalogoCarregado] = useState(false);
@@ -110,11 +116,15 @@ export default function ContratoScreen() {
       });
   }, []);
 
-  // 2. Carrega e atualiza o inventário do usuário sempre que entrar na tela
-  const carregarInventario = useCallback(() => {
+  // 2. Carrega e atualiza o inventário do usuário e a moeda ativa sempre que entrar na tela
+  const carregarInventarioEMoeda = useCallback(() => {
     setIsLoadingInventario(true);
-    AsyncStorage.getItem(STORAGE_KEY_INVENTARIO)
-      .then((dados) => {
+    Promise.all([
+      AsyncStorage.getItem(STORAGE_KEY_INVENTARIO),
+      obterMoedaSelecionada(),
+    ])
+      .then(([dados, moeda]) => {
+        setMoedaAtual(moeda);
         if (dados) {
           const lista = JSON.parse(dados);
           setInventario(Array.isArray(lista) ? lista : []);
@@ -133,19 +143,36 @@ export default function ContratoScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      carregarInventario();
-    }, [carregarInventario])
+      carregarInventarioEMoeda();
+    }, [carregarInventarioEMoeda])
   );
 
-  // Limpa mensagens temporárias de aviso após 3 segundos
+  // Limpa mensagens temporárias de aviso após 3.5 segundos
   useEffect(() => {
     if (mensagemAviso) {
       const timer = setTimeout(() => {
         setMensagemAviso(null);
-      }, 3200);
+      }, 3500);
       return () => clearTimeout(timer);
     }
   }, [mensagemAviso]);
+
+  // Formata o valor da skin na moeda atualmente ativa
+  const obterPrecoFormatadoItem = (item) => {
+    const moedaItem = item.moeda || 'USD';
+    if (moedaItem === moedaAtual && typeof item.valorNumerico === 'number') {
+      return formatarPrecoMoeda(item.valorNumerico, moedaAtual);
+    }
+    if (typeof item.valorUsd === 'number') {
+      const convertido = converterValorMoeda(item.valorUsd, 'USD', moedaAtual);
+      return formatarPrecoMoeda(convertido, moedaAtual);
+    }
+    if (typeof item.valorNumerico === 'number') {
+      const convertido = converterValorMoeda(item.valorNumerico, moedaItem, moedaAtual);
+      return formatarPrecoMoeda(convertido, moedaAtual);
+    }
+    return item.preco || formatarPrecoMoeda(0, moedaAtual);
+  };
 
   // 3. Adicionar skin ao contrato (com bloqueio estrito de raridade)
   const selecionarSkinParaContrato = (skin) => {
@@ -325,8 +352,14 @@ export default function ContratoScreen() {
     const isStatTrakFinal =
       qtdStatTrak === 3 || (qtdStatTrak > 0 && Math.random() < qtdStatTrak / 3);
 
-    // G. Consulta o valor de mercado via PriceEmpire / Steam
-    obterPrecoSkin(skinSorteada.name, raridadeSuperiorObj.name, wearFinal, isStatTrakFinal)
+    // G. Consulta o valor de mercado na moeda ativa via PriceEmpire / Steam
+    obterPrecoSkin(
+      skinSorteada.name,
+      raridadeSuperiorObj.name,
+      wearFinal,
+      isStatTrakFinal,
+      moedaAtual
+    )
       .then((precoResultado) => {
         setDadosPrecoGerada(precoResultado);
 
@@ -345,9 +378,12 @@ export default function ContratoScreen() {
           isStatTrak: isStatTrakFinal,
           isFacaOuLuva: false,
           nomeCaixaOrigem: colecaoEscolhida?.name || 'Contrato de Trocas',
-          preco: precoResultado?.precoFormatado || '$ 25.00 USD',
+          preco: precoResultado?.precoFormatado || formatarPrecoMoeda(25.0, moedaAtual),
           valorNumerico: precoResultado?.valorNumerico || 25.0,
+          valorUsd: precoResultado?.valorUsd || 25.0,
+          moeda: moedaAtual,
           idInventario: `contrato-${skinSorteada.id}-${Date.now()}`,
+          timestamp: Date.now(),
           dataObtencao: new Date().toLocaleDateString('pt-BR'),
         };
 
@@ -394,7 +430,8 @@ export default function ContratoScreen() {
     : null;
 
   // Filtragem do inventário do usuário na tela:
-  // Quando uma skin é selecionada, oculta COMPLETAMENTE todas as skins de outras raridades
+  // REGRA FUNDAMENTAL JÁ APROVADA: Quando uma skin é selecionada, oculta COMPLETAMENTE
+  // todas as skins de outras raridades! Apenas skins compatíveis da mesma raridade ficam visíveis.
   const itensInventarioFiltrados = inventario.filter((item) => {
     const nomeRaridade = (item.rarity?.name || '').toLowerCase();
     const ehCovertOuFaca =
@@ -423,7 +460,7 @@ export default function ContratoScreen() {
   if (isLoadingInventario && !catalogoCarregado) {
     return (
       <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.centralizado}>
-        <ActivityIndicator size="large" color="#F58220" />
+        <ActivityIndicator size="large" color={CORES.laranjaCs} />
         <Text style={styles.textoCarregando}>Carregando Contrato de Trocas...</Text>
       </SafeAreaView>
     );
@@ -438,33 +475,45 @@ export default function ContratoScreen() {
       >
         {/* Cabeçalho da Página */}
         <View style={styles.cabecalhoPagina}>
-          <Text style={styles.tituloPagina}>Contrato de Trocas</Text>
-          <Text style={styles.subtituloPagina}>
-            Combine 3 skins da mesma raridade para receber 1 de tier superior
-          </Text>
+          <View style={styles.linhaTituloPagina}>
+            <View style={styles.circuloIconeCabecalho}>
+              <MaterialIcons name="swap-horizontal-circle" size={22} color={CORES.laranjaCs} />
+            </View>
+            <View style={styles.infoCabecalho}>
+              <Text style={styles.tituloPagina}>Contrato de Trocas</Text>
+              <Text style={styles.subtituloPagina}>
+                Combine 3 skins da mesma raridade para receber 1 de tier superior
+              </Text>
+            </View>
+          </View>
         </View>
 
         {/* Mensagem de Aviso Flutuante */}
         {mensagemAviso && (
           <View style={styles.bannerAviso}>
-            <MaterialIcons name="info-outline" size={18} color="#C95F08" />
+            <MaterialIcons name="warning-amber" size={18} color={CORES.laranjaBrilhante} />
             <Text style={styles.textoBannerAviso}>{mensagemAviso}</Text>
           </View>
         )}
 
         {/* ÁREA DA CAIXA DO CONTRATO */}
         <View style={styles.cardAreaContrato}>
-          {/* Topo da Caixa: Título e Contador de Skins */}
+          {/* Topo da Caixa: Título, Indicador de Raridade e Contador */}
           <View style={styles.linhaTopoContrato}>
-            <View>
+            <View style={styles.colunaInfoContrato}>
               <Text style={styles.rotuloSkinsContrato}>SKINS PARA CONTRATO</Text>
               {raridadeBloqueada ? (
-                <Text style={styles.subrotuloRaridade}>
-                  Raridade travada: <Text style={styles.destaqueRaridade}>{raridadeBloqueada}</Text>
-                </Text>
+                <View style={styles.linhaRaridadeBloqueada}>
+                  <Text style={styles.subrotuloRaridade}>Raridade travada: </Text>
+                  <View style={[styles.badgeRaridadeTravada, { backgroundColor: `${CORES.raridades[raridadeBloqueada] || CORES.azulAco}25`, borderColor: `${CORES.raridades[raridadeBloqueada] || CORES.azulAco}70` }]}>
+                    <Text style={[styles.textoBadgeRaridadeTravada, { color: CORES.raridades[raridadeBloqueada] || CORES.azulClaro }]}>
+                      {raridadeBloqueada}
+                    </Text>
+                  </View>
+                </View>
               ) : (
                 <Text style={styles.subrotuloRaridade}>
-                  Escolha qualquer skin para travar a raridade
+                  Selecione a 1ª skin para travar a raridade
                 </Text>
               )}
             </View>
@@ -490,8 +539,10 @@ export default function ContratoScreen() {
                 <TouchableOpacity
                   style={styles.botaoLimparSlots}
                   activeOpacity={0.7}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   onPress={limparContrato}
                 >
+                  <MaterialIcons name="delete-outline" size={16} color={CORES.erro} />
                   <Text style={styles.textoLimparSlots}>Limpar</Text>
                 </TouchableOpacity>
               )}
@@ -517,16 +568,16 @@ export default function ContratoScreen() {
             />
           </View>
 
-          {/* Prévia do Resultado do Contrato */}
+          {/* Prévia da Raridade Superior Esperada */}
           {raridadeSuperiorAlvo && (
             <View style={styles.boxResultadoPrevia}>
-              <MaterialIcons name="trending-up" size={18} color="#F58220" />
-              <Text style={styles.textoResultadoPrevia}>
-                Resultado garantido: Skin de raridade{' '}
-                <Text style={{ color: raridadeSuperiorAlvo.cor, fontWeight: 'bold' }}>
+              <MaterialIcons name="military-tech" size={20} color={raridadeSuperiorAlvo.cor} />
+              <Text style={styles.textoResultadoPrevia}>Resultado garantido:</Text>
+              <View style={[styles.badgePreviaRaridade, { backgroundColor: `${raridadeSuperiorAlvo.cor}25`, borderColor: `${raridadeSuperiorAlvo.cor}80` }]}>
+                <Text style={[styles.textoBadgePreviaRaridade, { color: raridadeSuperiorAlvo.cor }]}>
                   {raridadeSuperiorAlvo.name}
                 </Text>
-              </Text>
+              </View>
             </View>
           )}
 
@@ -541,12 +592,12 @@ export default function ContratoScreen() {
             onPress={assinarContrato}
           >
             {isSigning ? (
-              <ActivityIndicator size="small" color="#0F1923" />
+              <ActivityIndicator size="small" color={CORES.textoInvertido} />
             ) : (
               <MaterialIcons
                 name="history-edu"
                 size={22}
-                color={skinsContrato.length === 3 ? '#0F1923' : '#64748B'}
+                color={skinsContrato.length === 3 ? CORES.textoInvertido : CORES.textoMudo}
               />
             )}
             <Text
@@ -563,36 +614,40 @@ export default function ContratoScreen() {
         {/* SEÇÃO INFERIOR: INVENTÁRIO DO USUÁRIO */}
         <View style={styles.secaoInventario}>
           <View style={styles.cabecalhoSecaoInventario}>
-            <View>
+            <View style={styles.infoSecaoInventario}>
               <Text style={styles.tituloInventario}>Meu Inventário</Text>
               <Text style={styles.subtituloInventario}>
                 {raridadeBloqueada
-                  ? `Mostrando apenas skins ${raridadeBloqueada}`
+                  ? `Mostrando apenas skins "${raridadeBloqueada}"`
                   : 'Toque em uma skin para adicionar aos slots'}
               </Text>
             </View>
-            <Text style={styles.totalSkinsBadge}>
-              {itensInventarioFiltrados.length} {raridadeBloqueada ? 'compatíveis' : 'skins'}
-            </Text>
+            <View style={styles.badgeQtdSkins}>
+              <Text style={styles.totalSkinsBadge}>
+                {itensInventarioFiltrados.length} {raridadeBloqueada ? 'compatíveis' : 'skins'}
+              </Text>
+            </View>
           </View>
 
           {/* Campo de Busca no Inventário */}
           {inventario.length > 0 && (
             <View style={styles.barraBusca}>
+              <MaterialIcons name="search" size={20} color={CORES.textoMudo} style={styles.iconeBusca} />
               <TextInput
                 style={styles.campoBusca}
                 value={buscaInventario}
                 onChangeText={setBuscaInventario}
-                placeholder="Buscar no inventário por skin ou arma..."
-                placeholderTextColor="#5D79AE"
+                placeholder="Buscar por skin ou arma no inventário..."
+                placeholderTextColor={CORES.textoMudo}
               />
               {buscaInventario.length > 0 && (
                 <TouchableOpacity
                   style={styles.botaoLimparBusca}
                   activeOpacity={0.7}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   onPress={() => setBuscaInventario('')}
                 >
-                  <Text style={styles.textoLimparBusca}>Limpar</Text>
+                  <MaterialIcons name="close" size={16} color={CORES.textoSecundario} />
                 </TouchableOpacity>
               )}
             </View>
@@ -601,38 +656,41 @@ export default function ContratoScreen() {
           {/* Lista de Skins do Inventário */}
           {itensInventarioFiltrados.length === 0 ? (
             <View style={styles.vazioContainer}>
-              <MaterialIcons name="inventory-2" size={44} color="#68A3E5" />
+              <View style={styles.circuloIconeVazioGeral}>
+                <MaterialIcons name="inventory-2" size={40} color={CORES.laranjaCs} />
+              </View>
               <Text style={styles.vazioTitulo}>
                 {inventario.length === 0
                   ? 'Seu inventário está vazio'
                   : raridadeBloqueada
                   ? `Sem outras skins da raridade "${raridadeBloqueada}"`
-                  : 'Nenhuma skin compatível encontrada.'}
+                  : 'Nenhuma skin encontrada para essa busca.'}
               </Text>
               <Text style={styles.vazioSubtitulo}>
                 {inventario.length === 0
                   ? 'Abra caixas para colecionar skins e usá-las em contratos de troca!'
                   : raridadeBloqueada
-                  ? 'Você não possui mais skins dessa raridade no inventário para completar os 3 slots.'
-                  : 'Tente buscar com outro nome de arma ou skin.'}
+                  ? 'Você não possui mais skins desta raridade no inventário para completar os 3 slots.'
+                  : 'Tente buscar com outro nome de arma ou limpe o filtro.'}
               </Text>
+
               {inventario.length === 0 ? (
                 <TouchableOpacity
-                  style={styles.botaoIrCaixas}
+                  style={styles.botaoAcaoVazio}
                   activeOpacity={0.7}
                   onPress={() => router.push('/caixas')}
                 >
-                  <MaterialIcons name="vpn-key" size={18} color="#0F1923" />
-                  <Text style={styles.textoBotaoIrCaixas}>Abrir Caixas Agora</Text>
+                  <MaterialIcons name="vpn-key" size={18} color={CORES.textoInvertido} />
+                  <Text style={styles.textoBotaoAcaoVazio}>Abrir Caixas Agora</Text>
                 </TouchableOpacity>
               ) : raridadeBloqueada ? (
                 <TouchableOpacity
-                  style={styles.botaoIrCaixas}
+                  style={styles.botaoAcaoVazio}
                   activeOpacity={0.7}
                   onPress={limparContrato}
                 >
-                  <MaterialIcons name="refresh" size={18} color="#0F1923" />
-                  <Text style={styles.textoBotaoIrCaixas}>Limpar Filtro e Contrato</Text>
+                  <MaterialIcons name="refresh" size={18} color={CORES.textoInvertido} />
+                  <Text style={styles.textoBotaoAcaoVazio}>Limpar Filtro e Contrato</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -644,21 +702,23 @@ export default function ContratoScreen() {
                   (s) => (s.idInventario || s.id) === idItem
                 );
 
-                const nomeRaridade = item.rarity?.name || '';
-                const corRaridade = item.rarity?.color || '#2B6CB0';
+                const nomeRaridade = item.rarity?.name || 'Raridade Oficial';
+                const corRaridade =
+                  item.rarity?.color ||
+                  CORES.raridades[nomeRaridade] ||
+                  CORES.azulAco;
 
                 return (
                   <TouchableOpacity
                     key={idItem}
                     style={[
                       styles.cardItemInventario,
-                      { borderLeftColor: corRaridade },
                       selecionadaNoContrato && styles.cardSelecionado,
                     ]}
                     activeOpacity={0.7}
                     onPress={() => selecionarSkinParaContrato(item)}
                   >
-                    {/* Imagem da Skin */}
+                    {/* Imagem da Skin em container escuro */}
                     <View style={styles.containerImagemInv}>
                       {item.image ? (
                         <Image
@@ -684,20 +744,25 @@ export default function ContratoScreen() {
                         </Text>
                       </View>
 
-                      <Text style={[styles.raridadeInv, { color: corRaridade }]}>
-                        {nomeRaridade}
-                      </Text>
+                      {/* Chip de raridade com borda completa (sem faixa unilateral) */}
+                      <View style={styles.linhaTagsInv}>
+                        <View style={[styles.chipRaridadeItem, { backgroundColor: `${corRaridade}22`, borderColor: `${corRaridade}66` }]}>
+                          <Text style={[styles.textoChipRaridadeItem, { color: corRaridade }]}>
+                            {nomeRaridade}
+                          </Text>
+                        </View>
 
-                      {item.wearNome && (
-                        <Text style={styles.condicaoInv}>{item.wearNome}</Text>
-                      )}
+                        {item.wearNome && (
+                          <Text style={styles.condicaoInv}>{item.wearNome}</Text>
+                        )}
+                      </View>
 
                       <Text style={styles.precoInv}>
-                        {item.preco || '$ 0.00 USD'}
+                        {obterPrecoFormatadoItem(item)}
                       </Text>
                     </View>
 
-                    {/* Indicador de Status: Adicionada ao Contrato / Adicionar */}
+                    {/* Indicador de Status: No Contrato / Botão Adicionar */}
                     <View style={styles.colunaAcaoInv}>
                       {selecionadaNoContrato ? (
                         <View style={styles.badgeSelecionada}>
@@ -706,7 +771,7 @@ export default function ContratoScreen() {
                         </View>
                       ) : (
                         <View style={styles.badgeAdicionar}>
-                          <MaterialIcons name="add" size={14} color="#1E4C8A" />
+                          <MaterialIcons name="add" size={14} color={CORES.laranjaCs} />
                           <Text style={styles.textoBadgeAdicionar}>Adicionar</Text>
                         </View>
                       )}
@@ -719,7 +784,7 @@ export default function ContratoScreen() {
         </View>
       </ScrollView>
 
-      {/* MODAL DE RESULTADO DO CONTRATO */}
+      {/* MODAL DE RESULTADO DO CONTRATO DE TROCAS */}
       <Modal
         visible={modalResultadoAberto}
         animationType="slide"
@@ -730,22 +795,26 @@ export default function ContratoScreen() {
           <View
             style={[
               styles.modalCard,
-              { borderColor: skinGerada?.rarity?.color || '#F58220' },
+              { borderColor: skinGerada?.rarity?.color || CORES.laranjaCs },
             ]}
           >
+            <View style={styles.circuloSucessoModal}>
+              <MaterialIcons name="emoji-events" size={28} color={CORES.ouro} />
+            </View>
+
             <Text style={styles.modalTituloSucesso}>CONTRATO REALIZADO!</Text>
             <Text style={styles.modalSubtituloSucesso}>
-              As 3 skins foram consumidas e você recebeu:
+              As 3 skins foram consumidas e você recebeu uma skin superior:
             </Text>
 
-            {/* Tag StatTrak™ */}
+            {/* Tag StatTrak™ quando presente */}
             {skinGerada?.isStatTrak && (
               <View style={styles.badgeModalStatTrak}>
                 <Text style={styles.textoBadgeModalStatTrak}>StatTrak™</Text>
               </View>
             )}
 
-            {/* Imagem da Skin Gerada */}
+            {/* Imagem nítida da Skin Gerada */}
             <View style={styles.containerImagemModal}>
               {skinGerada?.image && (
                 <Image
@@ -759,14 +828,22 @@ export default function ContratoScreen() {
             {/* Nome da Skin */}
             <Text style={styles.modalNomeSkin}>{skinGerada?.name}</Text>
 
-            {/* Badge da Raridade Superior */}
+            {/* Chip da Raridade Superior */}
             <View
               style={[
-                styles.badgeModalRaridade,
-                { backgroundColor: skinGerada?.rarity?.color || '#4b69ff' },
+                styles.chipModalRaridade,
+                {
+                  backgroundColor: `${skinGerada?.rarity?.color || CORES.laranjaCs}25`,
+                  borderColor: skinGerada?.rarity?.color || CORES.laranjaCs,
+                },
               ]}
             >
-              <Text style={styles.textoBadgeModalRaridade}>
+              <Text
+                style={[
+                  styles.textoChipModalRaridade,
+                  { color: skinGerada?.rarity?.color || CORES.laranjaCs },
+                ]}
+              >
                 {skinGerada?.rarity?.name || 'Raridade Superior'}
               </Text>
             </View>
@@ -781,11 +858,11 @@ export default function ContratoScreen() {
               </Text>
             )}
 
-            {/* Card com Cotação de Preço */}
+            {/* Card com Cotação de Preço Oficial */}
             <View style={styles.modalBoxPreco}>
-              <Text style={styles.modalTituloBoxPreco}>VALOR DE MERCADO</Text>
+              <Text style={styles.modalTituloBoxPreco}>VALOR DE MERCADO ESTIMADO</Text>
               <Text style={styles.modalValorPreco}>
-                {dadosPrecoGerada?.precoFormatado || '$ 0.00 USD'}
+                {dadosPrecoGerada?.precoFormatado || formatarPrecoMoeda(25.0, moedaAtual)}
               </Text>
               <Text style={styles.modalFontePreco}>
                 via {dadosPrecoGerada?.fonte || 'PriceEmpire API'}
@@ -803,7 +880,7 @@ export default function ContratoScreen() {
                 activeOpacity={0.7}
                 onPress={() => setModalResultadoAberto(false)}
               >
-                <MaterialIcons name="refresh" size={18} color="#0F1923" />
+                <MaterialIcons name="refresh" size={18} color={CORES.textoInvertido} />
                 <Text style={styles.textoBotaoModalNovoContrato}>Novo Contrato</Text>
               </TouchableOpacity>
 
@@ -815,7 +892,7 @@ export default function ContratoScreen() {
                   router.push('/inventario');
                 }}
               >
-                <MaterialIcons name="inventory" size={18} color="#1E4C8A" />
+                <MaterialIcons name="inventory" size={18} color={CORES.textoPrincipal} />
                 <Text style={styles.textoBotaoModalVerInventario}>Ver no Inventário</Text>
               </TouchableOpacity>
             </View>
@@ -829,20 +906,20 @@ export default function ContratoScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.fundoApp,
   },
   centralizado: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    padding: 20,
+    backgroundColor: CORES.fundoApp,
+    padding: ESPACAMENTO.xl,
   },
   textoCarregando: {
-    color: '#1E4C8A',
+    color: CORES.textoPrincipal,
     fontSize: 16,
-    fontWeight: 'bold',
-    marginTop: 12,
+    fontWeight: '700',
+    marginTop: ESPACAMENTO.md,
   },
   scrollPrincipal: {
     flex: 1,
@@ -851,104 +928,148 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   cabecalhoPagina: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 6,
+    paddingHorizontal: ESPACAMENTO.lg,
+    paddingTop: ESPACAMENTO.md,
+    paddingBottom: ESPACAMENTO.sm,
+  },
+  linhaTituloPagina: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  circuloIconeCabecalho: {
+    width: 42,
+    height: 42,
+    borderRadius: BORDAS.pill,
+    backgroundColor: CORES.fundoCardElevado,
+    borderWidth: 1,
+    borderColor: CORES.bordaDestaque,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: ESPACAMENTO.md,
+  },
+  infoCabecalho: {
+    flex: 1,
   },
   tituloPagina: {
-    color: '#1E4C8A',
+    color: CORES.textoPrincipal,
     fontSize: 22,
-    fontWeight: 'bold',
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   subtituloPagina: {
-    color: '#2B6CB0',
-    fontSize: 13,
+    color: CORES.textoSecundario,
+    fontSize: 12.5,
     marginTop: 2,
+    lineHeight: 18,
   },
   bannerAviso: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFBEB',
+    backgroundColor: 'rgba(245, 130, 32, 0.12)',
     borderWidth: 1,
-    borderColor: '#FCD34D',
-    borderRadius: 8,
-    padding: 10,
-    marginHorizontal: 16,
-    marginTop: 8,
-    gap: 8,
+    borderColor: CORES.laranjaCs,
+    borderRadius: BORDAS.md,
+    padding: ESPACAMENTO.md,
+    marginHorizontal: ESPACAMENTO.lg,
+    marginTop: ESPACAMENTO.sm,
+    gap: ESPACAMENTO.sm,
   },
   textoBannerAviso: {
     flex: 1,
-    color: '#B45309',
+    color: CORES.laranjaBrilhante,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
+    lineHeight: 16,
   },
 
   // Área da Caixa do Contrato
   cardAreaContrato: {
-    backgroundColor: '#0F172A',
-    marginHorizontal: 16,
-    marginTop: 10,
-    borderRadius: 12,
-    padding: 14,
+    backgroundColor: CORES.fundoSuperficie,
+    marginHorizontal: ESPACAMENTO.lg,
+    marginTop: ESPACAMENTO.md,
+    borderRadius: BORDAS.lg,
+    padding: ESPACAMENTO.md,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: CORES.borda,
   },
   linhaTopoContrato: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: ESPACAMENTO.md,
+  },
+  colunaInfoContrato: {
+    flex: 1,
+    marginRight: ESPACAMENTO.sm,
   },
   rotuloSkinsContrato: {
-    color: '#F58220',
-    fontSize: 12,
-    fontWeight: 'bold',
-    letterSpacing: 0.8,
+    color: CORES.laranjaCs,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  linhaRaridadeBloqueada: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
+    flexWrap: 'wrap',
+    gap: 4,
   },
   subrotuloRaridade: {
-    color: '#94A3B8',
+    color: CORES.textoSecundario,
     fontSize: 11,
-    marginTop: 2,
   },
-  destaqueRaridade: {
-    color: '#F8FAFC',
-    fontWeight: 'bold',
+  badgeRaridadeTravada: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  textoBadgeRaridadeTravada: {
+    fontSize: 10,
+    fontWeight: '800',
   },
   linhaContadorAcoes: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: ESPACAMENTO.sm,
   },
   badgeContador: {
-    backgroundColor: '#1E293B',
+    backgroundColor: CORES.fundoCardElevado,
     borderWidth: 1,
-    borderColor: '#475569',
-    borderRadius: 6,
+    borderColor: CORES.bordaDestaque,
+    borderRadius: BORDAS.sm,
     paddingVertical: 4,
     paddingHorizontal: 10,
   },
   badgeContadorCompleto: {
-    backgroundColor: '#F58220',
-    borderColor: '#F58220',
+    backgroundColor: CORES.laranjaCs,
+    borderColor: CORES.laranjaBrilhante,
   },
   textoContador: {
-    color: '#94A3B8',
+    color: CORES.textoSecundario,
     fontSize: 13,
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
   textoContadorCompleto: {
-    color: '#0F1923',
-    fontWeight: 'bold',
+    color: CORES.textoInvertido,
+    fontWeight: '900',
   },
   botaoLimparSlots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+    borderRadius: BORDAS.sm,
     paddingVertical: 4,
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
+    gap: 2,
   },
   textoLimparSlots: {
-    color: '#EF4444',
-    fontSize: 12,
-    fontWeight: '600',
+    color: CORES.erro,
+    fontSize: 11,
+    fontWeight: '700',
   },
   containerSlots: {
     flexDirection: 'row',
@@ -958,127 +1079,145 @@ const styles = StyleSheet.create({
   boxResultadoPrevia: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E293B',
-    borderRadius: 6,
-    padding: 8,
-    marginTop: 10,
+    backgroundColor: CORES.fundoCard,
+    borderWidth: 1,
+    borderColor: CORES.bordaDestaque,
+    borderRadius: BORDAS.sm,
+    padding: ESPACAMENTO.sm,
+    marginTop: ESPACAMENTO.md,
     gap: 6,
   },
   textoResultadoPrevia: {
-    color: '#E2E8F0',
+    color: CORES.textoSecundario,
     fontSize: 11,
-    flex: 1,
+    fontWeight: '600',
+  },
+  badgePreviaRaridade: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  textoBadgePreviaRaridade: {
+    fontSize: 10.5,
+    fontWeight: '800',
   },
   botaoAssinar: {
-    backgroundColor: '#F58220',
+    backgroundColor: CORES.laranjaCs,
+    borderWidth: 1.5,
+    borderColor: CORES.laranjaBrilhante,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
-    paddingVertical: 12,
-    marginTop: 12,
-    gap: 8,
+    borderRadius: BORDAS.md,
+    paddingVertical: 13,
+    marginTop: ESPACAMENTO.md,
+    gap: ESPACAMENTO.sm,
   },
   botaoAssinarDesabilitado: {
-    backgroundColor: '#1E293B',
+    backgroundColor: CORES.fundoCard,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: CORES.borda,
   },
   textoBotaoAssinar: {
-    color: '#0F1923',
+    color: CORES.textoInvertido,
     fontSize: 14,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
+    fontWeight: '900',
+    letterSpacing: 0.8,
   },
   textoBotaoAssinarDesabilitado: {
-    color: '#64748B',
+    color: CORES.textoMudo,
+    fontWeight: '700',
   },
 
   // Seção do Inventário
   secaoInventario: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: ESPACAMENTO.lg,
+    paddingTop: ESPACAMENTO.lg,
   },
   cabecalhoSecaoInventario: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: ESPACAMENTO.sm,
+  },
+  infoSecaoInventario: {
+    flex: 1,
   },
   tituloInventario: {
-    color: '#1E4C8A',
-    fontSize: 17,
-    fontWeight: 'bold',
+    color: CORES.textoPrincipal,
+    fontSize: 18,
+    fontWeight: '800',
   },
   subtituloInventario: {
-    color: '#2B6CB0',
+    color: CORES.textoSecundario,
     fontSize: 12,
-    marginTop: 1,
+    marginTop: 2,
   },
-  totalSkinsBadge: {
-    backgroundColor: '#EBF4FC',
-    color: '#1E4C8A',
-    fontSize: 11,
-    fontWeight: 'bold',
+  badgeQtdSkins: {
+    backgroundColor: CORES.fundoCardElevado,
+    borderWidth: 1,
+    borderColor: CORES.bordaDestaque,
     paddingVertical: 3,
     paddingHorizontal: 8,
-    borderRadius: 4,
+    borderRadius: BORDAS.sm,
+  },
+  totalSkinsBadge: {
+    color: CORES.laranjaBrilhante,
+    fontSize: 11,
+    fontWeight: '800',
   },
   barraBusca: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.fundoInput,
     borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    height: 40,
-    marginBottom: 10,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.md,
+    paddingHorizontal: ESPACAMENTO.md,
+    height: 42,
+    marginBottom: ESPACAMENTO.md,
+  },
+  iconeBusca: {
+    marginRight: ESPACAMENTO.sm,
   },
   campoBusca: {
     flex: 1,
-    color: '#1E3A5F',
+    color: CORES.textoPrincipal,
     fontSize: 13,
   },
   botaoLimparBusca: {
-    paddingHorizontal: 4,
-  },
-  textoLimparBusca: {
-    color: '#2B6CB0',
-    fontSize: 11,
-    fontWeight: '600',
+    padding: 4,
   },
   gradeInventario: {
-    gap: 8,
+    gap: ESPACAMENTO.sm,
   },
   cardItemInventario: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.fundoCard,
     borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderLeftWidth: 5,
-    borderRadius: 8,
-    padding: 8,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.md,
+    padding: ESPACAMENTO.sm,
   },
   cardSelecionado: {
-    backgroundColor: '#F0FDF4',
-    borderColor: '#10B981',
-  },
-  cardIncompativel: {
-    opacity: 0.4,
+    borderColor: CORES.sucesso,
+    backgroundColor: 'rgba(16, 185, 129, 0.08)',
   },
   containerImagemInv: {
-    width: 65,
-    height: 50,
-    backgroundColor: '#EBF4FC',
-    borderRadius: 6,
+    width: 68,
+    height: 52,
+    backgroundColor: CORES.fundoSuperficie,
+    borderRadius: BORDAS.sm,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: CORES.bordaSuave,
   },
   imagemSkinInv: {
-    width: 60,
-    height: 45,
+    width: 62,
+    height: 46,
   },
   semImagemInv: {
     width: 50,
@@ -1087,43 +1226,55 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   textoSemImagemInv: {
-    color: '#2B6CB0',
+    color: CORES.textoMudo,
     fontSize: 10,
+    fontWeight: '700',
   },
   infoSkinInv: {
     flex: 1,
-    marginLeft: 10,
-    marginRight: 6,
+    marginLeft: ESPACAMENTO.md,
+    marginRight: ESPACAMENTO.xs,
   },
   linhaNomeInv: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   tagStatTrak: {
-    color: '#C95F08',
+    color: CORES.laranjaCs,
     fontSize: 12,
-    fontWeight: 'bold',
+    fontWeight: '900',
   },
   nomeSkinInv: {
-    color: '#1E3A5F',
+    color: CORES.textoPrincipal,
     fontSize: 13,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    flexShrink: 1,
   },
-  raridadeInv: {
-    fontSize: 11,
-    fontWeight: '600',
-    marginTop: 1,
+  linhaTagsInv: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 3,
+  },
+  chipRaridadeItem: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  textoChipRaridadeItem: {
+    fontSize: 9.5,
+    fontWeight: '800',
   },
   condicaoInv: {
-    color: '#5D79AE',
+    color: CORES.textoSecundario,
     fontSize: 10,
-    marginTop: 1,
   },
   precoInv: {
-    color: '#059669',
-    fontSize: 12,
-    fontWeight: 'bold',
-    marginTop: 2,
+    color: CORES.sucesso,
+    fontSize: 12.5,
+    fontWeight: '800',
+    marginTop: 3,
   },
   colunaAcaoInv: {
     alignItems: 'flex-end',
@@ -1132,120 +1283,121 @@ const styles = StyleSheet.create({
   badgeSelecionada: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#10B981',
-    paddingVertical: 4,
+    backgroundColor: CORES.sucesso,
+    paddingVertical: 5,
     paddingHorizontal: 8,
-    borderRadius: 6,
-    gap: 4,
+    borderRadius: BORDAS.sm,
+    gap: 3,
   },
   textoBadgeSelecionada: {
     color: '#FFFFFF',
     fontSize: 10,
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
   badgeAdicionar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EBF4FC',
+    backgroundColor: 'rgba(245, 130, 32, 0.12)',
     borderWidth: 1,
-    borderColor: '#68A3E5',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    gap: 2,
+    borderColor: CORES.laranjaCs,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: BORDAS.sm,
+    gap: 3,
   },
   textoBadgeAdicionar: {
-    color: '#1E4C8A',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  badgeNaoPermitida: {
-    backgroundColor: '#F1F5F9',
-    paddingVertical: 3,
-    paddingHorizontal: 6,
-    borderRadius: 4,
-  },
-  textoBadgeNaoPermitida: {
-    color: '#94A3B8',
-    fontSize: 9,
-    fontWeight: '600',
-  },
-  badgeIncompativel: {
-    backgroundColor: '#FEE2E2',
-    paddingVertical: 3,
-    paddingHorizontal: 6,
-    borderRadius: 4,
-  },
-  textoBadgeIncompativel: {
-    color: '#EF4444',
-    fontSize: 9,
-    fontWeight: '600',
+    color: CORES.laranjaCs,
+    fontSize: 10.5,
+    fontWeight: '800',
   },
   vazioContainer: {
     alignItems: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 20,
+    paddingVertical: 36,
+    paddingHorizontal: ESPACAMENTO.lg,
+  },
+  circuloIconeVazioGeral: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: CORES.fundoSuperficie,
+    borderWidth: 1,
+    borderColor: CORES.bordaDestaque,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: ESPACAMENTO.md,
   },
   vazioTitulo: {
-    color: '#1E4C8A',
+    color: CORES.textoPrincipal,
     fontSize: 16,
-    fontWeight: 'bold',
-    marginTop: 10,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   vazioSubtitulo: {
-    color: '#2B6CB0',
-    fontSize: 13,
+    color: CORES.textoSecundario,
+    fontSize: 12.5,
     textAlign: 'center',
     marginTop: 4,
-    marginBottom: 16,
+    marginBottom: ESPACAMENTO.lg,
+    lineHeight: 18,
   },
-  botaoIrCaixas: {
-    backgroundColor: '#F58220',
+  botaoAcaoVazio: {
+    backgroundColor: CORES.laranjaCs,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 8,
-    gap: 6,
+    paddingVertical: 11,
+    paddingHorizontal: 20,
+    borderRadius: BORDAS.md,
+    gap: ESPACAMENTO.sm,
   },
-  textoBotaoIrCaixas: {
-    color: '#0F1923',
-    fontWeight: 'bold',
+  textoBotaoAcaoVazio: {
+    color: CORES.textoInvertido,
+    fontWeight: '900',
     fontSize: 13,
   },
 
   // Modal de Resultado do Contrato
   modalFundo: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.94)',
+    backgroundColor: CORES.fundoModal,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: ESPACAMENTO.lg,
   },
   modalCard: {
     width: '100%',
     maxWidth: 380,
-    backgroundColor: '#0F172A',
-    borderRadius: 14,
+    backgroundColor: CORES.fundoSuperficie,
+    borderRadius: BORDAS.xl,
     borderWidth: 2,
-    padding: 20,
+    padding: ESPACAMENTO.xl,
     alignItems: 'center',
   },
+  circuloSucessoModal: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: CORES.fundoCardElevado,
+    borderWidth: 1,
+    borderColor: CORES.ouro,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: ESPACAMENTO.sm,
+  },
   modalTituloSucesso: {
-    color: '#F58220',
+    color: CORES.laranjaCs,
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '900',
     letterSpacing: 1,
   },
   modalSubtituloSucesso: {
-    color: '#94A3B8',
+    color: CORES.textoSecundario,
     fontSize: 12,
     marginTop: 2,
     marginBottom: 8,
     textAlign: 'center',
   },
   badgeModalStatTrak: {
-    backgroundColor: '#C95F08',
+    backgroundColor: CORES.laranjaEscuro,
     paddingVertical: 2,
     paddingHorizontal: 8,
     borderRadius: 4,
@@ -1254,113 +1406,113 @@ const styles = StyleSheet.create({
   textoBadgeModalStatTrak: {
     color: '#FFFFFF',
     fontSize: 10,
-    fontWeight: 'bold',
+    fontWeight: '900',
   },
   containerImagemModal: {
     width: '100%',
-    height: 120,
+    height: 125,
     justifyContent: 'center',
     alignItems: 'center',
-    marginVertical: 8,
+    marginVertical: 6,
   },
   imagemModalSkin: {
     width: '90%',
-    height: 110,
+    height: 115,
   },
   modalNomeSkin: {
-    color: '#FFFFFF',
+    color: CORES.textoPrincipal,
     fontSize: 17,
-    fontWeight: 'bold',
+    fontWeight: '800',
     textAlign: 'center',
   },
-  badgeModalRaridade: {
+  chipModalRaridade: {
     paddingVertical: 3,
     paddingHorizontal: 10,
     borderRadius: 4,
+    borderWidth: 1,
     marginTop: 6,
   },
-  textoBadgeModalRaridade: {
-    color: '#FFFFFF',
+  textoChipModalRaridade: {
     fontSize: 11,
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
   modalCondicao: {
-    color: '#94A3B8',
+    color: CORES.textoSecundario,
     fontSize: 12,
     marginTop: 6,
   },
   modalColecaoOrigem: {
-    color: '#CBD5E1',
+    color: CORES.textoMudo,
     fontSize: 11,
     marginTop: 2,
   },
   modalBoxPreco: {
     width: '100%',
-    backgroundColor: '#1E293B',
-    borderRadius: 8,
-    padding: 10,
-    marginTop: 12,
+    backgroundColor: CORES.fundoCard,
+    borderRadius: BORDAS.md,
+    padding: ESPACAMENTO.md,
+    marginTop: ESPACAMENTO.md,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: CORES.borda,
   },
   modalTituloBoxPreco: {
-    color: '#94A3B8',
+    color: CORES.textoMudo,
     fontSize: 9,
-    fontWeight: 'bold',
+    fontWeight: '800',
     letterSpacing: 1,
   },
   modalValorPreco: {
-    color: '#10B981',
-    fontSize: 18,
-    fontWeight: 'bold',
+    color: CORES.sucesso,
+    fontSize: 20,
+    fontWeight: '900',
     marginTop: 2,
   },
   modalFontePreco: {
-    color: '#64748B',
+    color: CORES.textoMudo,
     fontSize: 10,
     marginTop: 1,
   },
   avisoInventarioModal: {
-    color: '#10B981',
-    fontSize: 11,
-    fontWeight: 'bold',
-    marginTop: 10,
+    color: CORES.sucesso,
+    fontSize: 11.5,
+    fontWeight: '700',
+    marginTop: ESPACAMENTO.md,
     textAlign: 'center',
   },
   modalAcoes: {
     width: '100%',
-    marginTop: 14,
-    gap: 8,
+    marginTop: ESPACAMENTO.md,
+    gap: ESPACAMENTO.sm,
   },
   botaoModalNovoContrato: {
-    backgroundColor: '#F58220',
+    backgroundColor: CORES.laranjaCs,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
-    paddingVertical: 11,
+    borderRadius: BORDAS.md,
+    paddingVertical: 12,
     gap: 6,
   },
   textoBotaoModalNovoContrato: {
-    color: '#0F1923',
+    color: CORES.textoInvertido,
     fontSize: 14,
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
   botaoModalVerInventario: {
-    backgroundColor: '#EBF4FC',
+    backgroundColor: CORES.fundoCardElevado,
     borderWidth: 1,
-    borderColor: '#68A3E5',
+    borderColor: CORES.bordaDestaque,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
-    paddingVertical: 10,
+    borderRadius: BORDAS.md,
+    paddingVertical: 11,
     gap: 6,
   },
   textoBotaoModalVerInventario: {
-    color: '#1E4C8A',
+    color: CORES.textoPrincipal,
     fontSize: 13,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
 });

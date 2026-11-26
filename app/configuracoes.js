@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   FlatList,
   Modal,
@@ -7,60 +7,112 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  STORAGE_KEY_MOEDA,
+  salvarMoedaSelecionada,
+  obterMoedaSelecionada,
+  TAXAS_CAMBIO,
+} from '../services/priceService';
+import { CORES, ESPACAMENTO, BORDAS } from '../constants/cs2Theme';
 
-// Chave compartilhada com o serviço de conversão de moeda
-const CHAVE_MOEDA = '@moeda_selecionada';
-const MOEDAS_VALIDAS = ['USD', 'BRL', 'EUR'];
+const STORAGE_KEY_INVENTARIO = '@inventario_skins';
+const STORAGE_KEY_RECORDE = '@higher_lower_recorde_historico';
 
 const OPCOES_MOEDA = [
-  { codigo: 'USD', rotulo: 'Dólar (USD - $)' },
-  { codigo: 'BRL', rotulo: 'Real (BRL - R$)' },
-  { codigo: 'EUR', rotulo: 'Euro (EUR - €)' },
+  {
+    codigo: 'USD',
+    nome: 'Dólar Americano',
+    simbolo: '$',
+    rotulo: 'USD ($) • Cotação Base Global',
+    taxa: '1.00 USD',
+  },
+  {
+    codigo: 'BRL',
+    nome: 'Real Brasileiro',
+    simbolo: 'R$',
+    rotulo: 'BRL (R$) • Cotação Local Brasil',
+    taxa: `R$ ${TAXAS_CAMBIO.BRL.toFixed(2)}`,
+  },
+  {
+    codigo: 'EUR',
+    nome: 'Euro Europeu',
+    simbolo: '€',
+    rotulo: 'EUR (€) • Mercado Europeu',
+    taxa: `€ ${TAXAS_CAMBIO.EUR.toFixed(2)}`,
+  },
 ];
 
+/**
+ * Tela de Configurações Táticas do CS2 SkinWiki
+ *
+ * Princípios de Impeccable Design:
+ * - Tema tático escuro CS2 coeso (#0B0E14, #131924, #182232).
+ * - Sem faixas unilaterais (borderLeftWidth proibido).
+ * - Dropdown com modal escuro e radio buttons táteis.
+ * - Confirmação segura de limpeza com estatísticas do inventário.
+ * - Seção com metodologia pedagógica do Prof. Victor Vidigal Ribeiro.
+ * - Pure JavaScript e componentes oficiais.
+ */
 export default function ConfiguracoesScreen() {
   const [moedaSelecionada, setMoedaSelecionada] = useState('USD');
   const [modalMoedaAberto, setModalMoedaAberto] = useState(false);
   const [modalConfirmacaoAberto, setModalConfirmacaoAberto] = useState(false);
+  const [totalItensInventario, setTotalItensInventario] = useState(0);
 
-  // Carrega a moeda salva ao abrir a tela (padrão USD)
+  // Carrega moeda salva e contagem de itens ao abrir a tela
   useEffect(() => {
-    const carregarMoeda = async () => {
+    const carregarDadosIniciais = async () => {
       try {
-        const moedaSalva = await AsyncStorage.getItem(CHAVE_MOEDA);
-        if (moedaSalva && MOEDAS_VALIDAS.includes(moedaSalva)) {
-          setMoedaSelecionada(moedaSalva);
+        const moeda = await obterMoedaSelecionada();
+        setMoedaSelecionada(moeda || 'USD');
+
+        const dadosInventario = await AsyncStorage.getItem(STORAGE_KEY_INVENTARIO);
+        if (dadosInventario) {
+          const lista = JSON.parse(dadosInventario);
+          setTotalItensInventario(Array.isArray(lista) ? lista.length : 0);
+        } else {
+          setTotalItensInventario(0);
         }
-      } catch (erro) {
-        // Mantém o padrão USD se não conseguir ler do AsyncStorage
+      } catch (err) {
+        // Fallback seguro
       }
     };
 
-    carregarMoeda();
+    carregarDadosIniciais();
   }, []);
 
-  // Salva a nova moeda imediatamente no AsyncStorage
-  const selecionarMoeda = async (novaMoeda) => {
+  // Altera a moeda no serviço e no estado local
+  const selecionarMoeda = async (codigo) => {
     try {
-      await AsyncStorage.setItem(CHAVE_MOEDA, novaMoeda);
-      setMoedaSelecionada(novaMoeda);
+      await salvarMoedaSelecionada(codigo);
+      setMoedaSelecionada(codigo);
       setModalMoedaAberto(false);
-    } catch (erro) {
+    } catch (err) {
       setModalMoedaAberto(false);
     }
   };
 
-  // Apaga todos os dados locais e restaura o padrão inicial
+  // Apaga inventário, cache e configurações locais
   const confirmarLimparCache = async () => {
     try {
-      await AsyncStorage.clear();
-      setMoedaSelecionada('USD');
+      await AsyncStorage.multiRemove([
+        STORAGE_KEY_INVENTARIO,
+        STORAGE_KEY_RECORDE,
+      ]);
+      setTotalItensInventario(0);
       setModalConfirmacaoAberto(false);
+      Alert.alert(
+        'Armazenamento Limpo',
+        'Inventário local e registros temporários foram resetados com sucesso.'
+      );
     } catch (erro) {
       setModalConfirmacaoAberto(false);
+      Alert.alert('Erro', 'Não foi possível limpar os dados locais.');
     }
   };
 
@@ -69,323 +121,686 @@ export default function ConfiguracoesScreen() {
     OPCOES_MOEDA[0];
 
   return (
-    <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.safeArea}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.conteudo}>
-        {/* Cabeçalho simples da tela */}
+    <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.conteudoScroll}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Cabeçalho Moderno com Ícone Tático */}
         <View style={styles.cabecalho}>
-          <Text style={styles.titulo}>Configurações</Text>
-          <Text style={styles.subtitulo}>
-            Preferências de exibição e dados do aplicativo
-          </Text>
+          <View style={styles.iconeCabecalhoContainer}>
+            <MaterialIcons name="settings" size={28} color={CORES.laranjaCs} />
+          </View>
+          <View style={styles.infoCabecalho}>
+            <Text style={styles.tituloCabecalho}>CENTRAL TÁTICA</Text>
+            <Text style={styles.subtituloCabecalho}>
+              Preferências de mercado, câmbio e gestão de dados
+            </Text>
+          </View>
         </View>
 
-        {/* Seção 1 — Câmbio / Moeda das Skins */}
-        <View style={styles.secao}>
-          <Text style={styles.tituloSecao}>Câmbio (Moeda)</Text>
-          <Text style={styles.descricaoSecao}>
-            Escolha a moeda usada nos preços das skins em todo o aplicativo.
-          </Text>
+        {/* Seção 1 — Câmbio e Moeda */}
+        <View style={styles.cardSecao}>
+          <View style={styles.topoSecao}>
+            <View style={styles.iconeSecaoContainer}>
+              <MaterialIcons name="currency-exchange" size={20} color={CORES.azulClaro} />
+            </View>
+            <View style={styles.titulosSecao}>
+              <Text style={styles.tituloSecao}>CÂMBIO DO MERCADO</Text>
+              <Text style={styles.descricaoSecao}>
+                Selecione a moeda de referência para avaliação das skins
+              </Text>
+            </View>
+          </View>
 
+          {/* Botão Dropdown Refinado */}
           <TouchableOpacity
             style={styles.botaoDropdown}
             activeOpacity={0.7}
             onPress={() => setModalMoedaAberto(true)}
           >
-            <Text style={styles.textoDropdown} numberOfLines={1}>
-              {moedaAtual.rotulo}
-            </Text>
-            <Text style={styles.setaDropdown}>▼</Text>
+            <View style={styles.infoMoedaAtual}>
+              <View style={styles.simboloMoedaBadge}>
+                <Text style={styles.textoSimboloMoeda}>{moedaAtual.simbolo}</Text>
+              </View>
+              <View style={styles.detalhesMoedaDropdown}>
+                <Text style={styles.codigoMoedaDropdown}>{moedaAtual.codigo}</Text>
+                <Text style={styles.nomeMoedaDropdown}>{moedaAtual.nome}</Text>
+              </View>
+            </View>
+
+            <View style={styles.setaDropdownContainer}>
+              <Text style={styles.rotuloTaxaDropdown}>{moedaAtual.taxa}</Text>
+              <MaterialIcons name="arrow-drop-down" size={24} color={CORES.laranjaCs} />
+            </View>
           </TouchableOpacity>
         </View>
 
-        {/* Seção 2 — Limpar Cache e Resetar Sessão */}
-        <View style={styles.secao}>
-          <Text style={styles.tituloSecao}>Sessão e Cache</Text>
-          <Text style={styles.descricaoSecao}>
-            Apaga todas as skins salvas no inventário e reseta a sessão do
-            aplicativo.
-          </Text>
+        {/* Seção 2 — Armazenamento e Sessão */}
+        <View style={styles.cardSecao}>
+          <View style={styles.topoSecao}>
+            <View style={styles.iconeSecaoContainer}>
+              <MaterialIcons name="sd-storage" size={20} color={CORES.alerta} />
+            </View>
+            <View style={styles.titulosSecao}>
+              <Text style={styles.tituloSecao}>DADOS E ARMAZENAMENTO</Text>
+              <Text style={styles.descricaoSecao}>
+                Gerenciamento do inventário persistido no dispositivo
+              </Text>
+            </View>
+          </View>
 
+          {/* Card Informativo com Estatísticas */}
+          <View style={styles.cardInfoEstatisticas}>
+            <View style={styles.linhaEstatistica}>
+              <Text style={styles.rotuloEstatistica}>Skins no Inventário Local:</Text>
+              <Text style={styles.valorEstatistica}>
+                {totalItensInventario}{' '}
+                {totalItensInventario === 1 ? 'item' : 'itens'}
+              </Text>
+            </View>
+            <View style={styles.divisorEstatistica} />
+            <View style={styles.linhaEstatistica}>
+              <Text style={styles.rotuloEstatistica}>Mecanismo de Persistência:</Text>
+              <Text style={styles.valorEstatisticaDestaque}>
+                AsyncStorage Local
+              </Text>
+            </View>
+          </View>
+
+          {/* Botão de Limpar com Alerta */}
           <TouchableOpacity
-            style={styles.botaoReset}
+            style={styles.botaoLimparCache}
             activeOpacity={0.7}
             onPress={() => setModalConfirmacaoAberto(true)}
           >
-            <Text style={styles.textoBotaoReset}>
-              Limpar Cache e Resetar Sessão
-            </Text>
+            <MaterialIcons name="delete-sweep" size={20} color={CORES.erro} />
+            <Text style={styles.textoBotaoLimpar}>LIMPAR INVENTÁRIO E SESSÃO</Text>
           </TouchableOpacity>
+        </View>
+
+        {/* Seção 3 — Sobre o Aplicativo */}
+        <View style={styles.cardSecao}>
+          <View style={styles.topoSecao}>
+            <View style={styles.iconeSecaoContainer}>
+              <MaterialIcons name="info" size={20} color={CORES.sucesso} />
+            </View>
+            <View style={styles.titulosSecao}>
+              <Text style={styles.tituloSecao}>SOBRE O APLICATIVO</Text>
+              <Text style={styles.descricaoSecao}>
+                Informações de build, engenharia e metodologia didática
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.blocoSobre}>
+            <View style={styles.linhaSobreItem}>
+              <Text style={styles.rotuloSobre}>Aplicativo:</Text>
+              <Text style={styles.valorSobre}>CS2 SkinWiki Mobile</Text>
+            </View>
+
+            <View style={styles.linhaSobreItem}>
+              <Text style={styles.rotuloSobre}>Versão:</Text>
+              <Text style={styles.valorSobre}>v2.4.0 (Tactical Edition)</Text>
+            </View>
+
+            <View style={styles.linhaSobreItem}>
+              <Text style={styles.rotuloSobre}>APIs Integradas:</Text>
+              <Text style={styles.valorSobre}>ByMykel CSGO-API & PriceEmpire</Text>
+            </View>
+
+            <View style={styles.divisorSobre} />
+
+            <View style={styles.caixaDidatica}>
+              <MaterialIcons name="school" size={20} color={CORES.laranjaCs} />
+              <View style={styles.textoDidaticoContainer}>
+                <Text style={styles.tituloDidatico}>Projeto Educacional</Text>
+                <Text style={styles.descricaoDidatica}>
+                  Desenvolvido seguindo rigorosamente a estrutura didática e os
+                  princípios de React Native do Prof. Victor Vidigal Ribeiro.
+                </Text>
+              </View>
+            </View>
+          </View>
         </View>
       </ScrollView>
 
-      {/* Modal de seleção de Moeda */}
+      {/* Modal Tático de Seleção de Moeda */}
       <Modal
         visible={modalMoedaAberto}
+        transparent
+        animationType="fade"
         onRequestClose={() => setModalMoedaAberto(false)}
-        animationType="slide"
       >
-        <SafeAreaView style={styles.modalListaContainer}>
-          <Text style={styles.modalListaTitulo}>Escolher Moeda</Text>
-          <FlatList
-            style={styles.listaModal}
-            data={OPCOES_MOEDA}
-            keyExtractor={(item) => item.codigo}
-            renderItem={({ item }) => {
-              const ativa = item.codigo === moedaSelecionada;
-              return (
-                <TouchableOpacity
-                  style={[
-                    styles.opcaoModal,
-                    ativa && styles.opcaoModalAtiva,
-                  ]}
-                  activeOpacity={0.7}
-                  onPress={() => selecionarMoeda(item.codigo)}
-                >
-                  <Text
-                    style={[
-                      styles.textoOpcaoModal,
-                      ativa && styles.textoOpcaoModalAtiva,
-                    ]}
-                  >
-                    {item.rotulo}
-                  </Text>
-                </TouchableOpacity>
-              );
-            }}
-          />
-          <TouchableOpacity
-            style={styles.botaoFecharModal}
-            activeOpacity={0.7}
-            onPress={() => setModalMoedaAberto(false)}
-          >
-            <Text style={styles.textoBotaoFecharModal}>Fechar</Text>
-          </TouchableOpacity>
-        </SafeAreaView>
-      </Modal>
-
-      {/* Modal de confirmação antes de apagar tudo */}
-      <Modal
-        visible={modalConfirmacaoAberto}
-        onRequestClose={() => setModalConfirmacaoAberto(false)}
-        animationType="slide"
-      >
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalConteudo}>
-            <View style={styles.caixaAvisoModal}>
-              <Text style={styles.modalTitulo}>
-                Atenção: isso vai apagar tudo!
-              </Text>
-              <Text style={styles.modalDescricao}>
-                Todas as skins do seu inventário, o cache e as configurações da
-                sessão serão apagados. Essa ação não pode ser desfeita.
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.cabecalhoModal}>
+              <View style={styles.linhaTituloModal}>
+                <MaterialIcons name="currency-exchange" size={22} color={CORES.laranjaCs} />
+                <Text style={styles.tituloModal}>SELECIONAR MOEDA</Text>
+              </View>
+              <Text style={styles.subtituloModal}>
+                Os preços de todo o app serão convertidos automaticamente
               </Text>
             </View>
 
-            <TouchableOpacity
-              style={styles.botaoConfirmarModal}
-              activeOpacity={0.7}
-              onPress={confirmarLimparCache}
-            >
-              <Text style={styles.textoBotaoConfirmarModal}>
-                Sim, apagar tudo
-              </Text>
-            </TouchableOpacity>
+            <FlatList
+              data={OPCOES_MOEDA}
+              keyExtractor={(item) => item.codigo}
+              renderItem={({ item }) => {
+                const ativa = item.codigo === moedaSelecionada;
+                return (
+                  <TouchableOpacity
+                    style={[
+                      styles.opcaoMoedaModal,
+                      ativa && styles.opcaoMoedaModalAtiva,
+                    ]}
+                    activeOpacity={0.7}
+                    onPress={() => selecionarMoeda(item.codigo)}
+                  >
+                    <View style={styles.colunaInfoOpcao}>
+                      <View style={styles.linhaCodigoSimbolo}>
+                        <View style={styles.badgeSimboloModal}>
+                          <Text style={styles.textoBadgeSimboloModal}>
+                            {item.simbolo}
+                          </Text>
+                        </View>
+                        <Text style={styles.codigoOpcaoModal}>{item.codigo}</Text>
+                        <Text style={styles.taxaOpcaoModal}>({item.taxa})</Text>
+                      </View>
+                      <Text style={styles.nomeOpcaoModal}>{item.nome}</Text>
+                    </View>
+
+                    {/* Radio Button Tático */}
+                    <View
+                      style={[
+                        styles.radioButtonExterior,
+                        ativa && styles.radioButtonAtivo,
+                      ]}
+                    >
+                      {ativa && <View style={styles.radioButtonInterior} />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              }}
+            />
 
             <TouchableOpacity
-              style={styles.botaoCancelarModal}
+              style={styles.botaoFecharModal}
               activeOpacity={0.7}
-              onPress={() => setModalConfirmacaoAberto(false)}
+              onPress={() => setModalMoedaAberto(false)}
             >
-              <Text style={styles.textoBotaoCancelarModal}>Cancelar</Text>
+              <Text style={styles.textoBotaoFecharModal}>CONFIRMAR</Text>
             </TouchableOpacity>
           </View>
-        </SafeAreaView>
+        </View>
+      </Modal>
+
+      {/* Modal Tático de Confirmação para Limpar Cache */}
+      <Modal
+        visible={modalConfirmacaoAberto}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModalConfirmacaoAberto(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.iconeAlertaModal}>
+              <MaterialIcons name="warning" size={34} color={CORES.erro} />
+            </View>
+
+            <Text style={styles.tituloAlertaModal}>CONFIRMAR RESET</Text>
+            <Text style={styles.descricaoAlertaModal}>
+              Esta ação excluirá permanentemente todas as skins do seu inventário
+              local e resetará os recordes do minigame.
+            </Text>
+
+            <View style={styles.linhaAcoesModalConfirmar}>
+              <TouchableOpacity
+                style={styles.botaoConfirmarPerigo}
+                activeOpacity={0.7}
+                onPress={confirmarLimparCache}
+              >
+                <MaterialIcons name="delete-forever" size={18} color="#FFFFFF" />
+                <Text style={styles.textoConfirmarPerigo}>LIMPAR DADOS</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.botaoCancelar}
+                activeOpacity={0.7}
+                onPress={() => setModalConfirmacaoAberto(false)}
+              >
+                <Text style={styles.textoCancelar}>CANCELAR</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.fundoApp,
   },
-  conteudo: {
-    padding: 16,
-    paddingBottom: 24,
+  conteudoScroll: {
+    padding: ESPACAMENTO.md,
+    paddingBottom: ESPACAMENTO.xxl,
   },
   cabecalho: {
-    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: CORES.fundoCard,
+    borderWidth: 1.5,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.lg,
+    padding: ESPACAMENTO.md,
+    marginBottom: ESPACAMENTO.md,
   },
-  titulo: {
-    color: '#1E4C8A',
-    fontSize: 22,
-    fontWeight: 'bold',
-  },
-  subtitulo: {
-    color: '#2B6CB0',
-    fontSize: 14,
-    marginTop: 4,
-  },
-  secao: {
-    backgroundColor: '#FFFFFF',
+  iconeCabecalhoContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: BORDAS.md,
+    backgroundColor: 'rgba(245, 130, 32, 0.12)',
     borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 16,
+    borderColor: CORES.laranjaCs,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: ESPACAMENTO.md,
+  },
+  infoCabecalho: {
+    flex: 1,
+  },
+  tituloCabecalho: {
+    color: CORES.textoPrincipal,
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+  },
+  subtituloCabecalho: {
+    color: CORES.textoMudo,
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  cardSecao: {
+    backgroundColor: CORES.fundoCard,
+    borderWidth: 1.5,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.lg,
+    padding: ESPACAMENTO.md,
+    marginBottom: ESPACAMENTO.md,
+  },
+  topoSecao: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: ESPACAMENTO.md,
+  },
+  iconeSecaoContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: BORDAS.sm,
+    backgroundColor: CORES.fundoInput,
+    borderWidth: 1,
+    borderColor: CORES.bordaSuave,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: ESPACAMENTO.sm,
+  },
+  titulosSecao: {
+    flex: 1,
   },
   tituloSecao: {
-    color: '#1E4C8A',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 6,
+    color: CORES.textoPrincipal,
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.8,
   },
   descricaoSecao: {
-    color: '#1E3A5F',
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 14,
+    color: CORES.textoMudo,
+    fontSize: 11,
+    marginTop: 1,
   },
   botaoDropdown: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#EBF4FC',
-    borderWidth: 1,
-    borderColor: '#2B6CB0',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    height: 46,
+    backgroundColor: CORES.fundoInput,
+    borderWidth: 1.5,
+    borderColor: CORES.bordaDestaque,
+    borderRadius: BORDAS.md,
+    paddingHorizontal: ESPACAMENTO.md,
+    paddingVertical: ESPACAMENTO.sm,
   },
-  textoDropdown: {
-    flex: 1,
-    color: '#1E4C8A',
+  infoMoedaAtual: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  simboloMoedaBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: BORDAS.pill,
+    backgroundColor: 'rgba(245, 130, 32, 0.15)',
+    borderWidth: 1,
+    borderColor: CORES.laranjaCs,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  textoSimboloMoeda: {
+    color: CORES.laranjaCs,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  detalhesMoedaDropdown: {
+    alignItems: 'flex-start',
+  },
+  codigoMoedaDropdown: {
+    color: CORES.textoPrincipal,
     fontSize: 15,
-    fontWeight: 'bold',
-    marginRight: 8,
+    fontWeight: '900',
+    letterSpacing: 0.5,
   },
-  setaDropdown: {
-    color: '#1E4C8A',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  modalListaContainer: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-  },
-  modalListaTitulo: {
-    color: '#1E4C8A',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 14,
-  },
-  listaModal: {
-    flex: 1,
-  },
-  opcaoModal: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 8,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    marginBottom: 8,
-  },
-  opcaoModalAtiva: {
-    backgroundColor: '#1E4C8A',
-    borderColor: '#1E4C8A',
-  },
-  textoOpcaoModal: {
-    color: '#1E4C8A',
-    fontSize: 16,
+  nomeMoedaDropdown: {
+    color: CORES.textoMudo,
+    fontSize: 11,
     fontWeight: '600',
   },
-  textoOpcaoModalAtiva: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
+  setaDropdownContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  rotuloTaxaDropdown: {
+    color: CORES.textoSecundario,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  cardInfoEstatisticas: {
+    backgroundColor: CORES.fundoInput,
+    borderWidth: 1,
+    borderColor: CORES.bordaSuave,
+    borderRadius: BORDAS.md,
+    padding: ESPACAMENTO.sm,
+    marginBottom: ESPACAMENTO.md,
+  },
+  linhaEstatistica: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  rotuloEstatistica: {
+    color: CORES.textoMudo,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  valorEstatistica: {
+    color: CORES.textoPrincipal,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  valorEstatisticaDestaque: {
+    color: CORES.azulClaro,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  divisorEstatistica: {
+    height: 1,
+    backgroundColor: CORES.bordaSuave,
+    marginVertical: 4,
+  },
+  botaoLimparCache: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    borderWidth: 1.5,
+    borderColor: CORES.erro,
+    borderRadius: BORDAS.md,
+    paddingVertical: ESPACAMENTO.sm,
+    gap: 8,
+  },
+  textoBotaoLimpar: {
+    color: CORES.erro,
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  blocoSobre: {
+    backgroundColor: CORES.fundoInput,
+    borderWidth: 1,
+    borderColor: CORES.bordaSuave,
+    borderRadius: BORDAS.md,
+    padding: ESPACAMENTO.md,
+  },
+  linhaSobreItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginVertical: 4,
+  },
+  rotuloSobre: {
+    color: CORES.textoMudo,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  valorSobre: {
+    color: CORES.textoPrincipal,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  divisorSobre: {
+    height: 1,
+    backgroundColor: CORES.bordaSuave,
+    marginVertical: ESPACAMENTO.sm,
+  },
+  caixaDidatica: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(245, 130, 32, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 130, 32, 0.3)',
+    borderRadius: BORDAS.md,
+    padding: ESPACAMENTO.sm,
+    gap: 10,
+    alignItems: 'center',
+  },
+  textoDidaticoContainer: {
+    flex: 1,
+  },
+  tituloDidatico: {
+    color: CORES.laranjaCs,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
+  descricaoDidatica: {
+    color: CORES.textoSecundario,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: CORES.fundoModal,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: ESPACAMENTO.lg,
+  },
+  modalCard: {
+    backgroundColor: CORES.fundoCardElevado,
+    borderWidth: 1.5,
+    borderColor: CORES.bordaDestaque,
+    borderRadius: BORDAS.xl,
+    padding: ESPACAMENTO.lg,
+    width: '100%',
+    maxWidth: 380,
+  },
+  cabecalhoModal: {
+    marginBottom: ESPACAMENTO.md,
+  },
+  linhaTituloModal: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  tituloModal: {
+    color: CORES.textoPrincipal,
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  subtituloModal: {
+    color: CORES.textoMudo,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  opcaoMoedaModal: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: CORES.fundoInput,
+    borderWidth: 1.5,
+    borderColor: CORES.bordaSuave,
+    borderRadius: BORDAS.md,
+    paddingVertical: ESPACAMENTO.sm,
+    paddingHorizontal: ESPACAMENTO.md,
+    marginBottom: ESPACAMENTO.sm,
+  },
+  opcaoMoedaModalAtiva: {
+    borderColor: CORES.laranjaCs,
+    backgroundColor: 'rgba(245, 130, 32, 0.1)',
+  },
+  colunaInfoOpcao: {
+    flex: 1,
+  },
+  linhaCodigoSimbolo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  badgeSimboloModal: {
+    width: 22,
+    height: 22,
+    borderRadius: BORDAS.pill,
+    backgroundColor: CORES.fundoSuperficie,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  textoBadgeSimboloModal: {
+    color: CORES.laranjaCs,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  codigoOpcaoModal: {
+    color: CORES.textoPrincipal,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  taxaOpcaoModal: {
+    color: CORES.textoMudo,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  nomeOpcaoModal: {
+    color: CORES.textoSecundario,
+    fontSize: 11,
+    marginTop: 1,
+  },
+  radioButtonExterior: {
+    width: 20,
+    height: 20,
+    borderRadius: BORDAS.pill,
+    borderWidth: 2,
+    borderColor: CORES.bordaDestaque,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: ESPACAMENTO.sm,
+  },
+  radioButtonAtivo: {
+    borderColor: CORES.laranjaCs,
+  },
+  radioButtonInterior: {
+    width: 10,
+    height: 10,
+    borderRadius: BORDAS.pill,
+    backgroundColor: CORES.laranjaCs,
   },
   botaoFecharModal: {
-    backgroundColor: '#EBF4FC',
-    borderWidth: 1,
-    borderColor: '#2B6CB0',
-    borderRadius: 8,
-    paddingVertical: 12,
+    backgroundColor: CORES.laranjaCs,
+    borderRadius: BORDAS.md,
+    paddingVertical: ESPACAMENTO.md,
     alignItems: 'center',
-    marginTop: 12,
+    marginTop: ESPACAMENTO.xs,
   },
   textoBotaoFecharModal: {
-    color: '#1E4C8A',
-    fontSize: 16,
-    fontWeight: 'bold',
+    color: CORES.textoInvertido,
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.8,
   },
-  botaoReset: {
-    backgroundColor: '#F58220',
-    padding: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  textoBotaoReset: {
-    color: '#0F1923',
-    fontSize: 15,
-    fontWeight: 'bold',
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  modalConteudo: {
-    flex: 1,
-    padding: 16,
+  iconeAlertaModal: {
+    width: 56,
+    height: 56,
+    borderRadius: BORDAS.pill,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderWidth: 1.5,
+    borderColor: CORES.erro,
     justifyContent: 'center',
-  },
-  caixaAvisoModal: {
-    backgroundColor: '#FFF3E8',
-    borderWidth: 1,
-    borderColor: '#F58220',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 20,
-  },
-  modalTitulo: {
-    color: '#C95F08',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 10,
-  },
-  modalDescricao: {
-    color: '#0F1923',
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  botaoConfirmarModal: {
-    backgroundColor: '#F58220',
-    padding: 14,
-    borderRadius: 8,
     alignItems: 'center',
-    marginBottom: 10,
+    alignSelf: 'center',
+    marginBottom: ESPACAMENTO.sm,
   },
-  textoBotaoConfirmarModal: {
-    color: '#0F1923',
-    fontSize: 16,
-    fontWeight: 'bold',
+  tituloAlertaModal: {
+    color: CORES.textoPrincipal,
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    textAlign: 'center',
+    marginBottom: ESPACAMENTO.xs,
   },
-  botaoCancelarModal: {
-    backgroundColor: '#EBF4FC',
-    borderWidth: 1,
-    borderColor: '#2B6CB0',
-    padding: 14,
-    borderRadius: 8,
+  descricaoAlertaModal: {
+    color: CORES.textoSecundario,
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginBottom: ESPACAMENTO.lg,
+  },
+  linhaAcoesModalConfirmar: {
+    flexDirection: 'row',
+    gap: ESPACAMENTO.sm,
+  },
+  botaoConfirmarPerigo: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: CORES.erro,
+    paddingVertical: ESPACAMENTO.md,
+    borderRadius: BORDAS.md,
+    gap: 6,
   },
-  textoBotaoCancelarModal: {
-    color: '#1E4C8A',
-    fontSize: 16,
-    fontWeight: 'bold',
+  textoConfirmarPerigo: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  botaoCancelar: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: CORES.fundoSuperficie,
+    borderWidth: 1.5,
+    borderColor: CORES.bordaDestaque,
+    paddingVertical: ESPACAMENTO.md,
+    borderRadius: BORDAS.md,
+  },
+  textoCancelar: {
+    color: CORES.textoPrincipal,
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
 });

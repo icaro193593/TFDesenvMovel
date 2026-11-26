@@ -1,3 +1,4 @@
+import React, { useEffect, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -9,17 +10,31 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import HigherLowerCard from '../components/HigherLowerCard';
 import useHigherOrLower from '../hooks/useHigherOrLower';
+import { CORES, ESPACAMENTO, BORDAS } from '../constants/cs2Theme';
 
-// Tela principal do minigame Higher or Lower.
-// Compara o preço de mercado de skins de diferentes categorias do CS2.
+// Chave para persistência permanente do recorde do jogador no dispositivo
+const STORAGE_KEY_RECORDE_HIGHER_LOWER = '@higher_lower_recorde_historico';
+
+/**
+ * Tela HigherLowerScreen - Arena de Duelo de Preços CS2
+ *
+ * Princípios de Impeccable Design:
+ * - Tema tático escuro (#0B0E14) em camadas (#131924, #182232).
+ * - Sem faixas unilaterais.
+ * - Brasão divisor "VS" com linhas táticas de mira.
+ * - Botões de ação rápida e responsivos com feedback de pressão.
+ * - Persistência do recorde pessoal via AsyncStorage.
+ * - Conformidade com TUTORIAL_REACT_NATIVE.md (Pure JavaScript).
+ */
 export default function HigherLowerScreen() {
   const {
     skinBase,
     skinComparada,
     pontuacao,
-    recorde,
+    recorde: recordeSessao,
     isLoading,
     error,
     fase,
@@ -31,28 +46,69 @@ export default function HigherLowerScreen() {
     tentarNovamente,
   } = useHigherOrLower();
 
+  const [recordePersistido, setRecordePersistido] = useState(0);
+
+  // Carrega o recorde histórico persistido no dispositivo
+  useEffect(() => {
+    const carregarRecordeSalvo = async () => {
+      try {
+        const valorSalvo = await AsyncStorage.getItem(STORAGE_KEY_RECORDE_HIGHER_LOWER);
+        if (valorSalvo !== null) {
+          const num = parseInt(valorSalvo, 10);
+          if (!isNaN(num)) {
+            setRecordePersistido(num);
+          }
+        }
+      } catch (err) {
+        // Fallback silencioso
+      }
+    };
+    carregarRecordeSalvo();
+  }, []);
+
+  // Atualiza e persiste o recorde histórico sempre que a pontuação superar o recorde anterior
+  useEffect(() => {
+    const maiorRecorde = Math.max(recordeSessao, pontuacao);
+    if (maiorRecorde > recordePersistido) {
+      setRecordePersistido(maiorRecorde);
+      AsyncStorage.setItem(STORAGE_KEY_RECORDE_HIGHER_LOWER, String(maiorRecorde)).catch(() => {});
+    }
+  }, [recordeSessao, pontuacao, recordePersistido]);
+
+  const recordeExibido = Math.max(recordePersistido, recordeSessao, pontuacao);
+
   // 1. Estado de Carregamento inicial da API / preços
   if (isLoading) {
     return (
-      <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.centralizado}>
-        <ActivityIndicator size="large" color="#F58220" />
-        <Text style={styles.textoStatus}>Carregando skins do jogo...</Text>
+      <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.telaCarregamento}>
+        <View style={styles.caixaSpinner}>
+          <ActivityIndicator size="large" color={CORES.laranjaCs} />
+          <Text style={styles.textoCarregando}>SINCRONIZANDO ARENA CS2...</Text>
+          <Text style={styles.subtextoCarregando}>
+            Consultando cotações de mercado da comunidade
+          </Text>
+        </View>
       </SafeAreaView>
     );
   }
 
-  // 2. Estado de Erro de conexão ou ausência de preços válidos
+  // 2. Estado de Erro de conexão ou ausência de dados
   if (error) {
     return (
-      <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.centralizado}>
-        <Text style={styles.textoErro}>{error}</Text>
-        <TouchableOpacity
-          style={styles.botaoAcao}
-          activeOpacity={0.7}
-          onPress={tentarNovamente}
-        >
-          <Text style={styles.textoBotaoAcao}>Tentar novamente</Text>
-        </TouchableOpacity>
+      <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.telaCarregamento}>
+        <View style={styles.caixaErro}>
+          <MaterialIcons name="cloud-off" size={48} color={CORES.erro} />
+          <Text style={styles.tituloErro}>FALHA DE COMUNICAÇÃO</Text>
+          <Text style={styles.textoErro}>{error}</Text>
+          <TouchableOpacity
+            style={styles.botaoTentarNovamente}
+            activeOpacity={0.7}
+            onPress={tentarNovamente}
+          >
+            <MaterialIcons name="refresh" size={18} color={CORES.textoInvertido} />
+            <Text style={styles.textoBotaoTentarNovamente}>RECONECTAR ARENA</Text>
+          </TouchableOpacity>
+        </View>
       </SafeAreaView>
     );
   }
@@ -63,48 +119,67 @@ export default function HigherLowerScreen() {
         contentContainerStyle={styles.conteudoScroll}
         showsVerticalScrollIndicator={false}
       >
-        {/* Cabeçalho / Placar no topo */}
-        <View style={styles.linhaPlacar}>
-          <View style={styles.cardPlacar}>
-            <Text style={styles.rotuloPlacar}>PONTUAÇÃO</Text>
-            <Text style={styles.valorPlacar}>{pontuacao}</Text>
+        {/* Painel Tático de Pontuação e Recorde */}
+        <View style={styles.painelPlacar}>
+          <View style={styles.cardStreak}>
+            <View style={styles.linhaRotuloPlacar}>
+              <MaterialIcons name="flash-on" size={14} color={CORES.azulClaro} />
+              <Text style={styles.rotuloStreak}>SEQUÊNCIA ATUAL</Text>
+            </View>
+            <Text style={styles.valorStreak}>{pontuacao}</Text>
+            <Text style={styles.subtextoStreak}>VITÓRIAS SEGUIDAS</Text>
           </View>
 
-          <View style={styles.cardPlacar}>
-            <View style={styles.linhaRotuloRecorde}>
-              <MaterialIcons name="emoji-events" size={14} color="#C95F08" />
-              <Text style={styles.rotuloRecorde}>RECORDE</Text>
+          <View style={styles.divisorPlacar} />
+
+          <View style={styles.cardRecorde}>
+            <View style={styles.linhaRotuloPlacar}>
+              <MaterialIcons name="emoji-events" size={14} color={CORES.ouro} />
+              <Text style={styles.rotuloRecorde}>RECORDE PESSOAL</Text>
             </View>
-            <Text style={styles.valorRecorde}>{recorde}</Text>
+            <Text style={styles.valorRecorde}>{recordeExibido}</Text>
+            <Text style={styles.subtextoRecorde}>MELHOR MARCA</Text>
           </View>
         </View>
 
-        {/* Banner de feedback durante revelação */}
+        {/* Banners Táticos de Feedback Durante a Revelação */}
         {resultadoRodada === 'acerto' && (
           <View style={styles.bannerAcerto}>
-            <MaterialIcons name="check-circle" size={20} color="#059669" />
-            <Text style={styles.textoBannerAcerto}>Acertou! +1 ponto</Text>
+            <MaterialIcons name="check-circle" size={22} color={CORES.sucesso} />
+            <View style={styles.colunaTextoBanner}>
+              <Text style={styles.tituloBannerAcerto}>ALVO CONFIRMADO!</Text>
+              <Text style={styles.subtextoBannerAcerto}>+1 Ponto para a sequência</Text>
+            </View>
           </View>
         )}
 
         {resultadoRodada === 'erro' && (
           <View style={styles.bannerErro}>
-            <MaterialIcons name="cancel" size={20} color="#EF4444" />
-            <Text style={styles.textoBannerErro}>Errou! Fim de jogo...</Text>
+            <MaterialIcons name="highlight-off" size={22} color={CORES.erro} />
+            <View style={styles.colunaTextoBanner}>
+              <Text style={styles.tituloBannerErro}>PREVISÃO INCORRETA!</Text>
+              <Text style={styles.subtextoBannerErro}>Revelando cotação de mercado...</Text>
+            </View>
           </View>
         )}
 
-        {/* Card 1: Skin Base (preço sempre visível) */}
+        {/* Card 1: Skin Base (preço sempre revelado) */}
         <HigherLowerCard
           skin={skinBase}
-          etiqueta="SKIN BASE"
+          etiqueta="SKIN DE REFERÊNCIA"
           ocultarPreco={false}
           destaqueEstado={null}
         />
 
-        {/* Divisor simples "VS" */}
+        {/* Divisor "VS" com Brasão Tático e Linhas de Mira */}
         <View style={styles.containerVs}>
-          <Text style={styles.textoVs}>VS</Text>
+          <View style={styles.linhaMiraVs} />
+          <View style={styles.brasaoVs}>
+            <View style={styles.anelExternoVs}>
+              <Text style={styles.textoVs}>VS</Text>
+            </View>
+          </View>
+          <View style={styles.linhaMiraVs} />
         </View>
 
         {/* Card 2: Skin Comparada (preço oculto durante o palpite) */}
@@ -115,37 +190,51 @@ export default function HigherLowerScreen() {
           destaqueEstado={resultadoRodada}
         />
 
-        {/* Botões de Palpite: Mais Cara e Mais Barata */}
-        <View style={styles.linhaBotoes}>
+        {/* Bloco de Botões de Ação Tática */}
+        <View style={styles.linhaBotoesAcao}>
+          {/* Botão MAIOR / MAIS CARA */}
           <TouchableOpacity
             style={[
-              styles.botaoMaisCara,
+              styles.botaoPalpite,
+              styles.botaoMaior,
               botoesDesabilitados && styles.botaoDesabilitado,
             ]}
             activeOpacity={0.7}
             disabled={botoesDesabilitados}
             onPress={() => palpitar('maior')}
           >
-            <MaterialIcons name="arrow-upward" size={20} color="#0F1923" />
-            <Text style={styles.textoMaisCara}>Mais cara</Text>
+            <View style={styles.iconeBotaoContainer}>
+              <MaterialIcons name="arrow-upward" size={22} color={CORES.textoInvertido} />
+            </View>
+            <View style={styles.colunaTextoBotao}>
+              <Text style={styles.textoBotaoPrincipal}>MAIS CARA</Text>
+              <Text style={styles.subtextoBotaoMaior}>▲ MAIOR VALOR</Text>
+            </View>
           </TouchableOpacity>
 
+          {/* Botão MENOR / MAIS BARATA */}
           <TouchableOpacity
             style={[
-              styles.botaoMaisBarata,
+              styles.botaoPalpite,
+              styles.botaoMenor,
               botoesDesabilitados && styles.botaoDesabilitado,
             ]}
             activeOpacity={0.7}
             disabled={botoesDesabilitados}
             onPress={() => palpitar('menor')}
           >
-            <MaterialIcons name="arrow-downward" size={20} color="#1E4C8A" />
-            <Text style={styles.textoMaisBarata}>Mais barata</Text>
+            <View style={styles.iconeBotaoContainerMenor}>
+              <MaterialIcons name="arrow-downward" size={22} color={CORES.azulClaro} />
+            </View>
+            <View style={styles.colunaTextoBotao}>
+              <Text style={styles.textoBotaoMenor}>MAIS BARATA</Text>
+              <Text style={styles.subtextoBotaoMenor}>▼ MENOR VALOR</Text>
+            </View>
           </TouchableOpacity>
         </View>
       </ScrollView>
 
-      {/* Modal de Game Over */}
+      {/* Modal Tático de Game Over */}
       <Modal
         visible={fase === 'gameover'}
         transparent
@@ -154,52 +243,74 @@ export default function HigherLowerScreen() {
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitulo}>Game Over</Text>
+            {/* Brasão de Cabeçalho do Fim de Jogo */}
+            <View style={styles.topoModal}>
+              <View style={styles.iconeModalFim}>
+                <MaterialIcons name="military-tech" size={32} color={CORES.erro} />
+              </View>
+              <Text style={styles.tituloModal}>FIM DE JOGO</Text>
+              <Text style={styles.subtituloModal}>CONFRONTO TÁTICO ENCERRADO</Text>
+            </View>
 
-            {/* Resumo dos preços das duas skins */}
-            <View style={styles.resumoPrecosContainer}>
-              <View style={styles.linhaResumoSkin}>
-                <Text style={styles.nomeResumoSkin} numberOfLines={1}>
-                  {skinBase?.name}
-                </Text>
-                <Text style={styles.precoResumoSkin}>
-                  {skinBase?.precoFormatado}
-                </Text>
+            {/* Resumo do Confronto de Cotações */}
+            <View style={styles.resumoConfronto}>
+              <Text style={styles.rotuloResumo}>COTAÇÕES FINAIS REVELADAS</Text>
+
+              {/* Skin 1 */}
+              <View style={styles.itemResumo}>
+                <View style={styles.infoResumoSkin}>
+                  <Text style={styles.nomeResumo} numberOfLines={1}>
+                    {skinBase?.name}
+                  </Text>
+                  <Text style={styles.tipoResumo}>REFERÊNCIA</Text>
+                </View>
+                <Text style={styles.precoResumo}>{skinBase?.precoFormatado}</Text>
               </View>
 
               <View style={styles.divisorResumo} />
 
-              <View style={styles.linhaResumoSkin}>
-                <Text style={styles.nomeResumoSkin} numberOfLines={1}>
-                  {skinComparada?.name}
-                </Text>
-                <Text style={styles.precoResumoSkin}>
+              {/* Skin 2 */}
+              <View style={styles.itemResumo}>
+                <View style={styles.infoResumoSkin}>
+                  <Text style={styles.nomeResumo} numberOfLines={1}>
+                    {skinComparada?.name}
+                  </Text>
+                  <Text style={styles.tipoResumo}>PALPITE</Text>
+                </View>
+                <Text style={styles.precoResumoDestaque}>
                   {skinComparada?.precoFormatado}
                 </Text>
               </View>
             </View>
 
-            {/* Placar final e recorde da sessão */}
-            <View style={styles.linhaModalPlacar}>
-              <View style={styles.caixaModalPlacar}>
-                <Text style={styles.rotuloModalPlacar}>PONTUAÇÃO FINAL</Text>
-                <Text style={styles.valorModalPlacar}>{pontuacao}</Text>
+            {/* Placar Final e Recorde */}
+            <View style={styles.gradeEstatisticasModal}>
+              <View style={styles.caixaEstatisticaModal}>
+                <Text style={styles.rotuloEstatisticaModal}>PONTUAÇÃO</Text>
+                <Text style={styles.valorEstatisticaModal}>{pontuacao}</Text>
               </View>
 
-              <View style={styles.caixaModalPlacar}>
-                <Text style={styles.rotuloModalRecorde}>RECORDE</Text>
-                <Text style={styles.valorModalRecorde}>{recorde}</Text>
+              <View style={styles.caixaEstatisticaModal}>
+                <Text style={styles.rotuloEstatisticaRecorde}>RECORDE</Text>
+                <Text style={styles.valorEstatisticaRecorde}>{recordeExibido}</Text>
               </View>
             </View>
 
-            {/* Botão para reiniciar a partida */}
+            {pontuacao >= recordeExibido && pontuacao > 0 && (
+              <View style={styles.badgeNovoRecorde}>
+                <MaterialIcons name="stars" size={16} color={CORES.ouro} />
+                <Text style={styles.textoNovoRecorde}>NOVO RECORDE PESSOAL ATINGIDO!</Text>
+              </View>
+            )}
+
+            {/* Botão de Reinício */}
             <TouchableOpacity
-              style={styles.botaoJogarNovamente}
-              activeOpacity={0.7}
+              style={styles.botaoReiniciar}
+              activeOpacity={0.8}
               onPress={jogarNovamente}
             >
-              <MaterialIcons name="replay" size={20} color="#0F1923" />
-              <Text style={styles.textoBotaoJogarNovamente}>Jogar novamente</Text>
+              <MaterialIcons name="replay" size={20} color={CORES.textoInvertido} />
+              <Text style={styles.textoBotaoReiniciar}>JOGAR NOVAMENTE</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -211,285 +322,467 @@ export default function HigherLowerScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.fundoApp,
   },
-  centralizado: {
+  telaCarregamento: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.fundoApp,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: ESPACAMENTO.xl,
   },
-  textoStatus: {
-    color: '#1E4C8A',
+  caixaSpinner: {
+    backgroundColor: CORES.fundoCard,
+    borderWidth: 1.5,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.lg,
+    padding: ESPACAMENTO.xl,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 320,
+  },
+  textoCarregando: {
+    color: CORES.textoPrincipal,
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginTop: ESPACAMENTO.md,
+  },
+  subtextoCarregando: {
+    color: CORES.textoMudo,
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: ESPACAMENTO.xs,
+  },
+  caixaErro: {
+    backgroundColor: CORES.fundoCard,
+    borderWidth: 1.5,
+    borderColor: CORES.erro,
+    borderRadius: BORDAS.lg,
+    padding: ESPACAMENTO.xl,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 340,
+  },
+  tituloErro: {
+    color: CORES.erro,
     fontSize: 16,
-    marginTop: 12,
-    fontWeight: '600',
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginTop: ESPACAMENTO.sm,
   },
   textoErro: {
-    color: '#EF4444',
-    fontSize: 16,
+    color: CORES.textoSecundario,
+    fontSize: 13,
     textAlign: 'center',
-    marginBottom: 16,
+    marginVertical: ESPACAMENTO.md,
+    lineHeight: 18,
   },
-  botaoAcao: {
-    backgroundColor: '#F58220',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
+  botaoTentarNovamente: {
+    backgroundColor: CORES.laranjaCs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: ESPACAMENTO.md,
+    paddingHorizontal: ESPACAMENTO.lg,
+    borderRadius: BORDAS.md,
+    width: '100%',
   },
-  textoBotaoAcao: {
-    color: '#0F1923',
-    fontSize: 15,
-    fontWeight: 'bold',
+  textoBotaoTentarNovamente: {
+    color: CORES.textoInvertido,
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.6,
   },
   conteudoScroll: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 28,
+    paddingHorizontal: ESPACAMENTO.md,
+    paddingTop: ESPACAMENTO.sm,
+    paddingBottom: ESPACAMENTO.xxl,
   },
-  linhaPlacar: {
+  painelPlacar: {
     flexDirection: 'row',
-    gap: 10,
-    marginBottom: 12,
-  },
-  cardPlacar: {
-    flex: 1,
-    backgroundColor: '#EBF4FC',
-    borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    backgroundColor: CORES.fundoCard,
+    borderWidth: 1.5,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.lg,
+    padding: ESPACAMENTO.md,
+    marginBottom: ESPACAMENTO.sm,
     alignItems: 'center',
   },
-  rotuloPlacar: {
-    color: '#2B6CB0',
-    fontSize: 11,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
+  cardStreak: {
+    flex: 1,
+    alignItems: 'center',
   },
-  valorPlacar: {
-    color: '#1E4C8A',
-    fontSize: 22,
-    fontWeight: 'bold',
-    marginTop: 2,
+  cardRecorde: {
+    flex: 1,
+    alignItems: 'center',
   },
-  linhaRotuloRecorde: {
+  divisorPlacar: {
+    width: 1,
+    height: 48,
+    backgroundColor: CORES.bordaSuave,
+  },
+  linhaRotuloPlacar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    marginBottom: 2,
+  },
+  rotuloStreak: {
+    color: CORES.azulClaro,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  valorStreak: {
+    color: CORES.textoPrincipal,
+    fontSize: 26,
+    fontWeight: '900',
+    lineHeight: 32,
+  },
+  subtextoStreak: {
+    color: CORES.textoMudo,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
   rotuloRecorde: {
-    color: '#C95F08',
-    fontSize: 11,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
+    color: CORES.ouro,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
   valorRecorde: {
-    color: '#C95F08',
-    fontSize: 22,
-    fontWeight: 'bold',
-    marginTop: 2,
+    color: CORES.ouro,
+    fontSize: 26,
+    fontWeight: '900',
+    lineHeight: 32,
+  },
+  subtextoRecorde: {
+    color: CORES.textoMudo,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
   bannerAcerto: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#ECFDF5',
-    borderWidth: 1,
-    borderColor: '#059669',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginBottom: 12,
-    gap: 8,
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderWidth: 1.5,
+    borderColor: CORES.sucesso,
+    borderRadius: BORDAS.md,
+    paddingVertical: ESPACAMENTO.sm,
+    paddingHorizontal: ESPACAMENTO.md,
+    marginBottom: ESPACAMENTO.sm,
+    gap: 10,
   },
-  textoBannerAcerto: {
-    color: '#059669',
-    fontSize: 14,
-    fontWeight: 'bold',
+  colunaTextoBanner: {
+    flex: 1,
+  },
+  tituloBannerAcerto: {
+    color: CORES.sucesso,
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  subtextoBannerAcerto: {
+    color: CORES.textoSecundario,
+    fontSize: 11,
+    fontWeight: '600',
   },
   bannerErro: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FEE2E2',
-    borderWidth: 1,
-    borderColor: '#EF4444',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginBottom: 12,
-    gap: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    borderWidth: 1.5,
+    borderColor: CORES.erro,
+    borderRadius: BORDAS.md,
+    paddingVertical: ESPACAMENTO.sm,
+    paddingHorizontal: ESPACAMENTO.md,
+    marginBottom: ESPACAMENTO.sm,
+    gap: 10,
   },
-  textoBannerErro: {
-    color: '#EF4444',
-    fontSize: 14,
-    fontWeight: 'bold',
+  tituloBannerErro: {
+    color: CORES.erro,
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  subtextoBannerErro: {
+    color: CORES.textoSecundario,
+    fontSize: 11,
+    fontWeight: '600',
   },
   containerVs: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 6,
+    marginVertical: ESPACAMENTO.xs,
+  },
+  linhaMiraVs: {
+    flex: 1,
+    height: 1.5,
+    backgroundColor: CORES.bordaDestaque,
+  },
+  brasaoVs: {
+    paddingHorizontal: ESPACAMENTO.md,
+  },
+  anelExternoVs: {
+    width: 38,
+    height: 38,
+    borderRadius: BORDAS.pill,
+    backgroundColor: CORES.fundoSuperficie,
+    borderWidth: 2,
+    borderColor: CORES.laranjaCs,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   textoVs: {
-    color: '#2B6CB0',
-    fontSize: 16,
-    fontWeight: 'bold',
-    letterSpacing: 1,
+    color: CORES.laranjaCs,
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.8,
   },
-  linhaBotoes: {
+  linhaBotoesAcao: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 14,
+    gap: ESPACAMENTO.sm,
+    marginTop: ESPACAMENTO.md,
   },
-  botaoMaisCara: {
+  botaoPalpite: {
     flex: 1,
-    backgroundColor: '#F58220',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    gap: 6,
+    paddingVertical: ESPACAMENTO.md,
+    paddingHorizontal: ESPACAMENTO.sm,
+    borderRadius: BORDAS.lg,
+    borderWidth: 1.5,
+    gap: 8,
   },
-  textoMaisCara: {
-    color: '#0F1923',
-    fontSize: 16,
-    fontWeight: 'bold',
+  botaoMaior: {
+    backgroundColor: CORES.laranjaCs,
+    borderColor: CORES.laranjaBrilhante,
   },
-  botaoMaisBarata: {
-    flex: 1,
-    backgroundColor: '#EBF4FC',
-    borderWidth: 1,
-    borderColor: '#2B6CB0',
-    flexDirection: 'row',
-    alignItems: 'center',
+  iconeBotaoContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: BORDAS.pill,
+    backgroundColor: 'rgba(11, 14, 20, 0.25)',
     justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    gap: 6,
+    alignItems: 'center',
   },
-  textoMaisBarata: {
-    color: '#1E4C8A',
-    fontSize: 16,
-    fontWeight: 'bold',
+  colunaTextoBotao: {
+    alignItems: 'flex-start',
+  },
+  textoBotaoPrincipal: {
+    color: CORES.textoInvertido,
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  subtextoBotaoMaior: {
+    color: 'rgba(11, 14, 20, 0.75)',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  botaoMenor: {
+    backgroundColor: CORES.fundoCardElevado,
+    borderColor: CORES.azulAco,
+  },
+  iconeBotaoContainerMenor: {
+    width: 28,
+    height: 28,
+    borderRadius: BORDAS.pill,
+    backgroundColor: 'rgba(30, 76, 138, 0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  textoBotaoMenor: {
+    color: CORES.textoPrincipal,
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  subtextoBotaoMenor: {
+    color: CORES.azulClaro,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.4,
   },
   botaoDesabilitado: {
-    opacity: 0.5,
+    opacity: 0.45,
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    backgroundColor: CORES.fundoModal,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: ESPACAMENTO.lg,
   },
   modalCard: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 12,
-    padding: 20,
+    backgroundColor: CORES.fundoCardElevado,
+    borderWidth: 1.5,
+    borderColor: CORES.bordaDestaque,
+    borderRadius: BORDAS.xl,
+    padding: ESPACAMENTO.xl,
     width: '100%',
-    maxWidth: 380,
+    maxWidth: 390,
     alignItems: 'center',
   },
-  modalTitulo: {
-    color: '#EF4444',
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 14,
+  topoModal: {
+    alignItems: 'center',
+    marginBottom: ESPACAMENTO.md,
   },
-  resumoPrecosContainer: {
+  iconeModalFim: {
+    width: 52,
+    height: 52,
+    borderRadius: BORDAS.pill,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    borderWidth: 1.5,
+    borderColor: CORES.erro,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: ESPACAMENTO.xs,
+  },
+  tituloModal: {
+    color: CORES.textoPrincipal,
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+  },
+  subtituloModal: {
+    color: CORES.textoMudo,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginTop: 2,
+  },
+  resumoConfronto: {
     width: '100%',
-    backgroundColor: '#EBF4FC',
+    backgroundColor: CORES.fundoInput,
     borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 14,
+    borderColor: CORES.bordaSuave,
+    borderRadius: BORDAS.md,
+    padding: ESPACAMENTO.md,
+    marginBottom: ESPACAMENTO.md,
   },
-  linhaResumoSkin: {
+  rotuloResumo: {
+    color: CORES.textoMudo,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    marginBottom: ESPACAMENTO.xs,
+  },
+  itemResumo: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  nomeResumoSkin: {
+  infoResumoSkin: {
     flex: 1,
-    color: '#1E3A5F',
-    fontSize: 13,
-    fontWeight: 'bold',
-    marginRight: 8,
+    marginRight: ESPACAMENTO.sm,
   },
-  precoResumoSkin: {
-    color: '#059669',
+  nomeResumo: {
+    color: CORES.textoPrincipal,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  tipoResumo: {
+    color: CORES.textoMudo,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    marginTop: 1,
+  },
+  precoResumo: {
+    color: CORES.textoSecundario,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  precoResumoDestaque: {
+    color: CORES.laranjaBrilhante,
     fontSize: 14,
-    fontWeight: 'bold',
+    fontWeight: '900',
   },
   divisorResumo: {
     height: 1,
-    backgroundColor: '#68A3E5',
-    marginVertical: 8,
-    opacity: 0.5,
+    backgroundColor: CORES.bordaSuave,
+    marginVertical: ESPACAMENTO.xs,
   },
-  linhaModalPlacar: {
+  gradeEstatisticasModal: {
     flexDirection: 'row',
-    gap: 10,
+    gap: ESPACAMENTO.sm,
     width: '100%',
-    marginBottom: 18,
+    marginBottom: ESPACAMENTO.md,
   },
-  caixaModalPlacar: {
+  caixaEstatisticaModal: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: CORES.fundoSuperficie,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.md,
+    paddingVertical: ESPACAMENTO.sm,
     alignItems: 'center',
   },
-  rotuloModalPlacar: {
-    color: '#2B6CB0',
+  rotuloEstatisticaModal: {
+    color: CORES.textoMudo,
     fontSize: 10,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
   },
-  valorModalPlacar: {
-    color: '#1E4C8A',
-    fontSize: 22,
-    fontWeight: 'bold',
+  valorEstatisticaModal: {
+    color: CORES.textoPrincipal,
+    fontSize: 24,
+    fontWeight: '900',
     marginTop: 2,
   },
-  rotuloModalRecorde: {
-    color: '#C95F08',
+  rotuloEstatisticaRecorde: {
+    color: CORES.ouro,
     fontSize: 10,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
   },
-  valorModalRecorde: {
-    color: '#C95F08',
-    fontSize: 22,
-    fontWeight: 'bold',
+  valorEstatisticaRecorde: {
+    color: CORES.ouro,
+    fontSize: 24,
+    fontWeight: '900',
     marginTop: 2,
   },
-  botaoJogarNovamente: {
-    backgroundColor: '#F58220',
+  badgeNovoRecorde: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255, 215, 0, 0.12)',
+    borderWidth: 1,
+    borderColor: CORES.ouro,
+    borderRadius: BORDAS.sm,
+    paddingVertical: 6,
+    paddingHorizontal: ESPACAMENTO.md,
+    marginBottom: ESPACAMENTO.md,
+  },
+  textoNovoRecorde: {
+    color: CORES.ouro,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  botaoReiniciar: {
+    backgroundColor: CORES.laranjaCs,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 8,
+    paddingVertical: ESPACAMENTO.md,
+    paddingHorizontal: ESPACAMENTO.lg,
+    borderRadius: BORDAS.md,
     width: '100%',
     gap: 8,
   },
-  textoBotaoJogarNovamente: {
-    color: '#0F1923',
-    fontSize: 16,
-    fontWeight: 'bold',
+  textoBotaoReiniciar: {
+    color: CORES.textoInvertido,
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 0.8,
   },
 });

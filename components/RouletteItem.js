@@ -1,10 +1,12 @@
+import React from 'react';
 import { View, Text, Image, StyleSheet } from 'react-native';
+import { CORES, ESPACAMENTO, BORDAS } from '../constants/cs2Theme';
 
-// Item individual da esteira da roleta ou da grade de conteúdo da caixa
+// Item individual da esteira da roleta com estética tática de display CS2
 export default function RouletteItem({ item, largura = 130, isDestaque = false }) {
   if (!item) return null;
 
-  const corRaridade = item.rarity?.color || '#2B6CB0';
+  const corRaridade = item.rarity?.color || CORES.azulCs;
   const nomeCompleto = item.name || '';
   const partes = nomeCompleto.includes(' | ')
     ? nomeCompleto.split(' | ')
@@ -17,14 +19,14 @@ export default function RouletteItem({ item, largura = 130, isDestaque = false }
     <View
       style={[
         styles.card,
-        { width: largura, borderBottomColor: corRaridade },
+        { width: largura },
         isDestaque && styles.cardDestaque,
       ]}
     >
-      <View style={styles.topoRaridade}>
-        <View style={[styles.barraCor, { backgroundColor: corRaridade }]} />
-      </View>
+      {/* Indicador superior de raridade integrado */}
+      <View style={[styles.barraRaridadeSuperior, { backgroundColor: corRaridade }]} />
 
+      {/* Miniatura da Skin em câmara escura de contraste */}
       <View style={styles.containerImagem}>
         {item.image ? (
           <Image
@@ -39,6 +41,7 @@ export default function RouletteItem({ item, largura = 130, isDestaque = false }
         )}
       </View>
 
+      {/* Identificação legível da Arma e Skin */}
       <View style={styles.info}>
         <Text style={styles.textoArma} numberOfLines={1}>
           {arma}
@@ -48,34 +51,29 @@ export default function RouletteItem({ item, largura = 130, isDestaque = false }
         </Text>
       </View>
 
-      {/* Faixa inferior com a cor da raridade oficial do jogo */}
-      <View style={[styles.faixaInferior, { backgroundColor: corRaridade }]} />
+      {/* Acento inferior harmonioso da raridade */}
+      <View style={[styles.linhaAcentoInferior, { backgroundColor: corRaridade }]} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    height: 145,
-    backgroundColor: '#1E293B',
-    borderRadius: 6,
+    height: 148,
+    backgroundColor: CORES.fundoCard,
+    borderRadius: BORDAS.md,
     overflow: 'hidden',
     marginHorizontal: 4,
     borderWidth: 1,
-    borderColor: '#334155',
-    borderBottomWidth: 4,
+    borderColor: CORES.borda,
     justifyContent: 'space-between',
   },
   cardDestaque: {
-    borderColor: '#F58220',
+    borderColor: CORES.laranjaCs,
     borderWidth: 2,
-    backgroundColor: '#0F172A',
+    backgroundColor: CORES.fundoCardElevado,
   },
-  topoRaridade: {
-    height: 3,
-    width: '100%',
-  },
-  barraCor: {
+  barraRaridadeSuperior: {
     height: 3,
     width: '100%',
   },
@@ -83,42 +81,51 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 6,
+    marginHorizontal: ESPACAMENTO.xs,
+    marginTop: ESPACAMENTO.xs,
+    backgroundColor: CORES.fundoInput,
+    borderRadius: BORDAS.sm,
+    padding: ESPACAMENTO.xs,
+    borderWidth: 1,
+    borderColor: CORES.bordaSuave,
   },
   imagem: {
-    width: '90%',
-    height: 70,
+    width: '92%',
+    height: 68,
   },
   semImagem: {
-    width: 60,
-    height: 60,
+    width: 54,
+    height: 54,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#334155',
-    borderRadius: 4,
+    backgroundColor: CORES.fundoCard,
+    borderRadius: BORDAS.sm,
   },
   textoSemImagem: {
-    color: '#94A3B8',
-    fontSize: 12,
+    color: CORES.textoMudo,
+    fontSize: 11,
     fontWeight: 'bold',
   },
   info: {
-    paddingHorizontal: 8,
-    paddingBottom: 6,
+    paddingHorizontal: ESPACAMENTO.sm,
+    paddingVertical: 5,
   },
   textoArma: {
-    color: '#94A3B8',
+    color: CORES.textoSecundario,
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: '700',
     textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
   textoSkin: {
-    color: '#F8FAFC',
+    color: CORES.textoPrincipal,
     fontSize: 12,
     fontWeight: 'bold',
+    marginTop: 1,
   },
-  faixaInferior: {
-    height: 4,
+  linhaAcentoInferior: {
+    height: 2,
     width: '100%',
+    opacity: 0.85,
   },
 });

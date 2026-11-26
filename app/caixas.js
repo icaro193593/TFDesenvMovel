@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -10,13 +10,19 @@ import {
   Modal,
   Image,
   ScrollView,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import CaseCard from '../components/CaseCard';
 import RouletteItem from '../components/RouletteItem';
+import {
+  CORES,
+  ESPACAMENTO,
+  BORDAS,
+} from '../constants/cs2Theme';
 import {
   obterPrecoSkin,
   obterMoedaSelecionada,
@@ -39,11 +45,11 @@ const TOTAL_ITENS_ROLETA = 50;
 
 // Probabilidades oficiais do CS2 para abertura de caixas
 const PROBABILIDADES = [
-  { tipo: 'milspec', peso: 0.7992, nome: 'Mil-Spec Grade', cor: '#4b69ff' },
-  { tipo: 'restricted', peso: 0.1598, nome: 'Restricted', cor: '#8847ff' },
-  { tipo: 'classified', peso: 0.0320, nome: 'Classified', cor: '#d32ce6' },
-  { tipo: 'covert', peso: 0.0064, nome: 'Covert', cor: '#eb4b4b' },
-  { tipo: 'special', peso: 0.0026, nome: '★ Special Rare Item', cor: '#ffd700' },
+  { tipo: 'milspec', peso: 0.7992, nome: 'Mil-Spec Grade', cor: '#4B69FF' },
+  { tipo: 'restricted', peso: 0.1598, nome: 'Restricted', cor: '#8847FF' },
+  { tipo: 'classified', peso: 0.0320, nome: 'Classified', cor: '#D32CE6' },
+  { tipo: 'covert', peso: 0.0064, nome: 'Covert', cor: '#EB4B4B' },
+  { tipo: 'special', peso: 0.0026, nome: '★ Special Rare Item', cor: '#FFD700' },
 ];
 
 export default function CaixasScreen() {
@@ -281,12 +287,14 @@ export default function CaixasScreen() {
     }
 
     // Calcula o deslocamento exato para centralizar o item vencedor sob a agulha
-    // Adiciona uma pequena variação aleatória (-25 a +25px) para não parar sempre milimetricamente igual
-    const variacao = (Math.random() - 0.5) * 50;
+    // Adiciona uma pequena variação aleatória suave (-18 a +18px)
+    const paddingInicial = 12;
+    const variacao = (Math.random() - 0.5) * 36;
     const offsetCentro =
-      INDICE_VENCEDOR * PASSO_ROLETA -
+      paddingInicial +
+      INDICE_VENCEDOR * PASSO_ROLETA +
+      LARGURA_CARD_ROLETA / 2 -
       larguraViewport / 2 +
-      LARGURA_CARD_ROLETA / 2 +
       variacao;
 
     const duracaoTotal = 4600; // 4.6 segundos de rotação
@@ -302,9 +310,9 @@ export default function CaixasScreen() {
       const tempoPassado = agora - tempoInicio;
       const progresso = Math.min(1, tempoPassado / duracaoTotal);
 
-      // Curva cúbica: desacelera realisticamente imitando o jogo
+      // Curva cúbica: desacelera realisticamente imitando a roleta do jogo
       const ease = 1 - Math.pow(1 - progresso, 3);
-      const deslocamentoAtual = offsetCentro * ease;
+      const deslocamentoAtual = Math.max(0, offsetCentro * ease);
 
       if (roletaRef.current) {
         roletaRef.current.scrollToOffset({
@@ -390,7 +398,7 @@ export default function CaixasScreen() {
       });
   };
 
-  // Serializa leituras/escritas em @inventario_skins para evitar sobrescrita em aberturas rápidas
+  // Serializa leituras/escritas em @inventario_skins para evitar concorrência
   const enfileirarOperacaoInventario = (operacao) => {
     filaInventarioRef.current = filaInventarioRef.current
       .then(operacao)
@@ -489,7 +497,7 @@ export default function CaixasScreen() {
   if (isLoading) {
     return (
       <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.centralizado}>
-        <ActivityIndicator size="large" color="#F58220" />
+        <ActivityIndicator size="large" color={CORES.laranjaCs} />
         <Text style={styles.textoCarregando}>Carregando caixas do CS2...</Text>
       </SafeAreaView>
     );
@@ -499,6 +507,7 @@ export default function CaixasScreen() {
   if (error) {
     return (
       <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.centralizado}>
+        <MaterialIcons name="error-outline" size={44} color={CORES.erro} />
         <Text style={styles.textoErro}>{error}</Text>
         <TouchableOpacity
           style={styles.botaoRecarregar}
@@ -522,10 +531,10 @@ export default function CaixasScreen() {
     return (
       <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.container}>
         <ScrollView style={styles.scrollAbertura} showsVerticalScrollIndicator={false}>
-          {/* Botão de navegação superior para retornar à lista de caixas */}
+          {/* Barra Superior de Navegação para Voltar */}
           <TouchableOpacity
             style={styles.botaoVoltar}
-            activeOpacity={0.7}
+            activeOpacity={0.75}
             onPress={() => {
               if (timerAnimacaoRef.current) {
                 clearInterval(timerAnimacaoRef.current);
@@ -534,28 +543,48 @@ export default function CaixasScreen() {
               setCaixaSelecionada(null);
             }}
           >
-            <MaterialIcons name="arrow-back" size={20} color="#1E4C8A" />
+            <View style={styles.iconeVoltarContainer}>
+              <MaterialIcons name="arrow-back" size={18} color={CORES.laranjaCs} />
+            </View>
             <Text style={styles.textoBotaoVoltar}>Voltar para todas as caixas</Text>
           </TouchableOpacity>
 
-          {/* Cabeçalho da Caixa Selecionada */}
+          {/* Card de Cabeçalho da Caixa Selecionada */}
           <View style={styles.cabecalhoCaixa}>
-            {caixaSelecionada.image && (
-              <Image
-                source={{ uri: caixaSelecionada.image }}
-                style={styles.imagemCaixaTopo}
-                resizeMode="contain"
-              />
-            )}
+            <View style={styles.containerImagemCaixaTopo}>
+              {caixaSelecionada.image ? (
+                <Image
+                  source={{ uri: caixaSelecionada.image }}
+                  style={styles.imagemCaixaTopo}
+                  resizeMode="contain"
+                />
+              ) : (
+                <MaterialIcons name="inventory-2" size={36} color={CORES.textoMudo} />
+              )}
+            </View>
+
             <View style={styles.infoCaixaTopo}>
-              <Text style={styles.nomeCaixaTopo}>{caixaSelecionada.name}</Text>
-              <Text style={styles.subtituloCaixaTopo}>
-                {skinsCaixa.length} skins disponíveis + itens raros especiais
+              <Text style={styles.nomeCaixaTopo} numberOfLines={2}>
+                {caixaSelecionada.name}
               </Text>
+              <View style={styles.linhaResumoCaixa}>
+                <View style={styles.badgeResumoSkins}>
+                  <Text style={styles.textoResumoSkins}>
+                    {skinsCaixa.length} skins
+                  </Text>
+                </View>
+                {rarasCaixa.length > 0 && (
+                  <View style={styles.badgeResumoRaras}>
+                    <Text style={styles.textoResumoRaras}>
+                      ★ {rarasCaixa.length} raras
+                    </Text>
+                  </View>
+                )}
+              </View>
             </View>
           </View>
 
-          {/* CÂMARA DA ROLETA (MECANISMO DO JOGO) */}
+          {/* CÂMARA DA ROLETA (DISPLAY TÁTICO CS2) */}
           <View
             style={styles.containerRoleta}
             onLayout={(event) => {
@@ -564,16 +593,22 @@ export default function CaixasScreen() {
             }}
           >
             <View style={styles.topoRoleta}>
-              <Text style={styles.tituloRoleta}>SIMULADOR DE ABERTURA</Text>
+              <View style={styles.linhaTituloRoleta}>
+                <MaterialIcons name="casino" size={16} color={CORES.laranjaCs} />
+                <Text style={styles.tituloRoleta}>SIMULADOR DE ROLETA</Text>
+              </View>
               <Text style={styles.subtituloRoleta}>
-                {isSpinning ? 'Girando a caixa...' : 'Clique abaixo para abrir'}
+                {isSpinning ? 'Girando a esteira... Boa sorte!' : 'Pressione abrir para sortear uma skin'}
               </Text>
             </View>
 
-            {/* Marcador Central (Agulha Dourada Superior e Inferior) */}
+            {/* Moldura Metálica e Marcador Central de Precisão */}
             <View style={styles.areaEsteira}>
+              {/* Marcador Superior Laranja */}
               <View style={styles.marcadorSuperior} />
+              {/* Linha Central Vertical com Glow */}
               <View style={styles.linhaCentral} />
+              {/* Marcador Inferior Laranja */}
               <View style={styles.marcadorInferior} />
 
               {/* Esteira Horizontal de Skins */}
@@ -595,18 +630,21 @@ export default function CaixasScreen() {
               />
             </View>
 
-            {/* Botão de Ação: ABRIR CAIXA */}
+            {/* Botão de Ação Gigante Tático: ABRIR CAIXA */}
             <TouchableOpacity
-              style={[styles.botaoAbrirCaixa, isSpinning && styles.botaoAbrirDesativado]}
+              style={[
+                styles.botaoAbrirCaixa,
+                isSpinning && styles.botaoAbrirDesativado,
+              ]}
               activeOpacity={0.8}
               disabled={isSpinning}
               onPress={iniciarAbertura}
             >
-              <MaterialIcons
-                name={isSpinning ? 'hourglass-empty' : 'vpn-key'}
-                size={22}
-                color="#0F1923"
-              />
+              {isSpinning ? (
+                <ActivityIndicator size="small" color={CORES.textoInvertido} />
+              ) : (
+                <MaterialIcons name="vpn-key" size={22} color={CORES.textoInvertido} />
+              )}
               <Text style={styles.textoBotaoAbrirCaixa}>
                 {isSpinning ? 'ABRINDO CAIXA...' : 'ABRIR CAIXA'}
               </Text>
@@ -617,6 +655,8 @@ export default function CaixasScreen() {
           <View style={styles.secaoConteudo}>
             <View style={styles.cabecalhoSecao}>
               <Text style={styles.tituloSecao}>Conteúdo da Caixa</Text>
+
+              {/* Chips de Seleção de Aba */}
               <View style={styles.abasConteudo}>
                 <TouchableOpacity
                   style={[
@@ -658,36 +698,57 @@ export default function CaixasScreen() {
               </View>
             </View>
 
-            {/* Grade com todas as skins da caixa */}
+            {/* Grade refinada com as skins contidas na caixa */}
             <View style={styles.gradeSkins}>
               {listaExibicao.map((item, index) => {
-                const corRaridade = item.rarity?.color || '#2B6CB0';
+                const corRaridade = item.rarity?.color || CORES.azulCs;
                 return (
                   <View
                     key={`${item.id}-${index}`}
-                    style={[styles.cardSkinGrade, { borderLeftColor: corRaridade }]}
+                    style={styles.cardSkinGrade}
                   >
-                    {item.image ? (
-                      <Image
-                        source={{ uri: item.image }}
-                        style={styles.imagemSkinGrade}
-                        resizeMode="contain"
-                      />
-                    ) : (
-                      <View style={styles.semImagemGrade}>
-                        <Text style={styles.textoSemImagemGrade}>CS2</Text>
-                      </View>
-                    )}
+                    {/* Barra de cor de raridade interna integrada */}
+                    <View
+                      style={[
+                        styles.indicadorRaridadeGrade,
+                        { backgroundColor: corRaridade },
+                      ]}
+                    />
+
+                    {/* Imagem da Skin em câmara escura */}
+                    <View style={styles.containerImagemGrade}>
+                      {item.image ? (
+                        <Image
+                          source={{ uri: item.image }}
+                          style={styles.imagemSkinGrade}
+                          resizeMode="contain"
+                        />
+                      ) : (
+                        <View style={styles.semImagemGrade}>
+                          <Text style={styles.textoSemImagemGrade}>CS2</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Informações detalhadas da Skin */}
                     <View style={styles.infoSkinGrade}>
                       <Text style={styles.nomeSkinGrade} numberOfLines={2}>
                         {item.name}
                       </Text>
-                      <Text
-                        style={[styles.raridadeSkinGrade, { color: corRaridade }]}
-                        numberOfLines={1}
-                      >
-                        {item.rarity?.name || 'Raridade Oficial'}
-                      </Text>
+                      <View style={styles.linhaRaridadeGrade}>
+                        <View
+                          style={[
+                            styles.pontoRaridade,
+                            { backgroundColor: corRaridade },
+                          ]}
+                        />
+                        <Text
+                          style={[styles.raridadeSkinGrade, { color: corRaridade }]}
+                          numberOfLines={1}
+                        >
+                          {item.rarity?.name || 'Raridade Oficial'}
+                        </Text>
+                      </View>
                     </View>
                   </View>
                 );
@@ -696,10 +757,10 @@ export default function CaixasScreen() {
           </View>
         </ScrollView>
 
-        {/* MODAL DE REVELAÇÃO DA SKIN (ANIMAÇÃO AO RECEBER O ITEM) */}
+        {/* MODAL DE REVELAÇÃO DA SKIN (POPUP APÓS ABRIR) */}
         <Modal
           visible={modalRevelacaoAberto}
-          animationType="slide"
+          animationType="fade"
           transparent
           onRequestClose={() => setModalRevelacaoAberto(false)}
         >
@@ -710,12 +771,14 @@ export default function CaixasScreen() {
                 {
                   borderColor:
                     skinGanha?.rarity?.color ||
-                    (skinGanha?.isFacaOuLuva ? '#FFD700' : '#F58220'),
+                    (skinGanha?.isFacaOuLuva ? CORES.ouro : CORES.laranjaCs),
                 },
               ]}
             >
-              <Text style={styles.modalParabens}>PARABÉNS!</Text>
-              <Text style={styles.modalSubparabens}>Você abriu e recebeu:</Text>
+              <Text style={styles.modalParabens}>RECOMPENSA OBTIDA!</Text>
+              <Text style={styles.modalSubparabens} numberOfLines={1}>
+                Caixa: {caixaSelecionada?.name}
+              </Text>
 
               {/* Tag StatTrak™ ou Item Especial */}
               {skinGanha?.isStatTrak && (
@@ -724,7 +787,7 @@ export default function CaixasScreen() {
                 </View>
               )}
 
-              {/* Imagem em Destaque da Skin Ganha */}
+              {/* Imagem Monumental da Skin Ganha */}
               <View style={styles.modalContainerImagem}>
                 {skinGanha?.image && (
                   <Image
@@ -735,7 +798,7 @@ export default function CaixasScreen() {
                 )}
               </View>
 
-              {/* Informações da Skin */}
+              {/* Informações Principais da Skin */}
               <Text style={styles.modalNomeSkin}>{skinGanha?.name}</Text>
 
               <View
@@ -744,7 +807,7 @@ export default function CaixasScreen() {
                   {
                     backgroundColor:
                       skinGanha?.rarity?.color ||
-                      (skinGanha?.isFacaOuLuva ? '#FFD700' : '#4b69ff'),
+                      (skinGanha?.isFacaOuLuva ? CORES.ouro : CORES.azulCs),
                   },
                 ]}
               >
@@ -757,12 +820,12 @@ export default function CaixasScreen() {
                 {skinGanha?.wearNome} • Float: {skinGanha?.floatValor}
               </Text>
 
-              {/* Card de Preço via API PriceEmpire */}
+              {/* Box de Preço Dinâmico via PriceEmpire */}
               <View style={styles.boxPreco}>
-                <Text style={styles.tituloBoxPreco}>VALOR DE MERCADO</Text>
+                <Text style={styles.tituloBoxPreco}>VALOR ESTIMADO DE MERCADO</Text>
                 {buscandoPreco ? (
                   <View style={styles.linhaCarregandoPreco}>
-                    <ActivityIndicator size="small" color="#F58220" />
+                    <ActivityIndicator size="small" color={CORES.laranjaCs} />
                     <Text style={styles.textoCarregandoPreco}>
                       Consultando PriceEmpire...
                     </Text>
@@ -779,15 +842,19 @@ export default function CaixasScreen() {
                 )}
               </View>
 
-              <Text style={styles.textoSalvoAutomatico}>
-                Adicionada automaticamente ao inventário
-              </Text>
+              {/* Feedback de Armazenamento no Inventário */}
+              <View style={styles.linhaSalvoAutomatico}>
+                <MaterialIcons name="check-circle" size={15} color={CORES.sucesso} />
+                <Text style={styles.textoSalvoAutomatico}>
+                  Salvo automaticamente no seu inventário
+                </Text>
+              </View>
 
               {/* Ações do Modal */}
               <View style={styles.acoesModal}>
                 <TouchableOpacity
                   style={styles.botaoAbrirNovamente}
-                  activeOpacity={0.7}
+                  activeOpacity={0.8}
                   onPress={() => {
                     setModalRevelacaoAberto(false);
                     setTimeout(() => {
@@ -795,16 +862,19 @@ export default function CaixasScreen() {
                     }, 400);
                   }}
                 >
-                  <MaterialIcons name="refresh" size={18} color="#0F1923" />
-                  <Text style={styles.textoBotaoAbrirNovamente}>Abrir Novamente</Text>
+                  <MaterialIcons name="refresh" size={20} color={CORES.textoInvertido} />
+                  <Text style={styles.textoBotaoAbrirNovamente}>Abrir Outra</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={styles.botaoFecharModal}
-                  activeOpacity={0.7}
+                  style={styles.botaoGuardarInventario}
+                  activeOpacity={0.8}
                   onPress={() => setModalRevelacaoAberto(false)}
                 >
-                  <Text style={styles.textoBotaoFecharModal}>Fechar</Text>
+                  <MaterialIcons name="inventory" size={18} color={CORES.textoPrincipal} />
+                  <Text style={styles.textoBotaoGuardarInventario}>
+                    Guardar no Inventário
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -819,23 +889,39 @@ export default function CaixasScreen() {
   // =========================================================================
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.container}>
-      {/* Cabeçalho da tela de Caixas */}
+      {/* Cabeçalho Superior da Tela */}
       <View style={styles.cabecalho}>
-        <Text style={styles.titulo}>Abertura de Caixas</Text>
-        <Text style={styles.contador}>
-          {caixasFiltradas.length}{' '}
-          {caixasFiltradas.length === 1 ? 'caixa disponível' : 'caixas disponíveis'}
-        </Text>
+        <View>
+          <Text style={styles.titulo}>Abertura de Caixas</Text>
+          <Text style={styles.contador}>
+            {caixasFiltradas.length}{' '}
+            {caixasFiltradas.length === 1 ? 'caixa disponível' : 'caixas disponíveis'}
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          style={styles.botaoIrInventario}
+          activeOpacity={0.7}
+          onPress={() => router.push('/inventario')}
+        >
+          <MaterialIcons name="backpack" size={20} color={CORES.laranjaCs} />
+        </TouchableOpacity>
       </View>
 
-      {/* Barra de Busca de Caixas */}
+      {/* Barra de Busca Tática */}
       <View style={styles.barraBusca}>
+        <MaterialIcons
+          name="search"
+          size={20}
+          color={CORES.textoMudo}
+          style={styles.iconeBusca}
+        />
         <TextInput
           style={styles.campoBusca}
           value={busca}
           onChangeText={setBusca}
           placeholder="Buscar caixa (ex: Kilowatt, Dreams, Revolution)..."
-          placeholderTextColor="#5D79AE"
+          placeholderTextColor={CORES.textoMudo}
         />
         {busca.length > 0 && (
           <TouchableOpacity
@@ -843,43 +929,53 @@ export default function CaixasScreen() {
             activeOpacity={0.7}
             onPress={() => setBusca('')}
           >
-            <Text style={styles.textoLimpar}>Limpar</Text>
+            <MaterialIcons name="close" size={18} color={CORES.textoSecundario} />
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Seletor de Tipo: Caixas de Armas vs Todas as Caixas */}
+      {/* Seletor de Tipo com Chips Táticos */}
       <View style={styles.linhaFiltroTipo}>
         <TouchableOpacity
           style={[
-            styles.botaoFiltroTipo,
-            somenteArmas && styles.botaoFiltroTipoAtivo,
+            styles.chipFiltro,
+            somenteArmas && styles.chipFiltroAtivo,
           ]}
           activeOpacity={0.7}
           onPress={() => setSomenteArmas(true)}
         >
+          <MaterialIcons
+            name="security"
+            size={14}
+            color={somenteArmas ? CORES.textoInvertido : CORES.textoSecundario}
+          />
           <Text
             style={[
-              styles.textoFiltroTipo,
-              somenteArmas && styles.textoFiltroTipoAtivo,
+              styles.textoChipFiltro,
+              somenteArmas && styles.textoChipFiltroAtivo,
             ]}
           >
-            Caixas de Armas (42)
+            Caixas de Armas
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[
-            styles.botaoFiltroTipo,
-            !somenteArmas && styles.botaoFiltroTipoAtivo,
+            styles.chipFiltro,
+            !somenteArmas && styles.chipFiltroAtivo,
           ]}
           activeOpacity={0.7}
           onPress={() => setSomenteArmas(false)}
         >
+          <MaterialIcons
+            name="grid-view"
+            size={14}
+            color={!somenteArmas ? CORES.textoInvertido : CORES.textoSecundario}
+          />
           <Text
             style={[
-              styles.textoFiltroTipo,
-              !somenteArmas && styles.textoFiltroTipoAtivo,
+              styles.textoChipFiltro,
+              !somenteArmas && styles.textoChipFiltroAtivo,
             ]}
           >
             Todas as Caixas & Cápsulas
@@ -899,9 +995,10 @@ export default function CaixasScreen() {
         )}
         ListEmptyComponent={() => (
           <View style={styles.vazioContainer}>
+            <MaterialIcons name="search-off" size={48} color={CORES.textoMudo} />
             <Text style={styles.vazioTitulo}>Nenhuma caixa encontrada.</Text>
             <Text style={styles.vazioSubtitulo}>
-              Tente buscar por outro termo ou mude o filtro para todas as caixas.
+              Tente buscar por outro termo ou selecione todas as caixas.
             </Text>
             <TouchableOpacity
               style={styles.botaoAcao}
@@ -923,137 +1020,152 @@ export default function CaixasScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.fundoApp,
   },
   centralizado: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    padding: 20,
+    backgroundColor: CORES.fundoApp,
+    padding: ESPACAMENTO.xl,
   },
   textoCarregando: {
-    color: '#1E4C8A',
-    fontSize: 16,
+    color: CORES.textoSecundario,
+    fontSize: 15,
     fontWeight: 'bold',
-    marginTop: 12,
+    marginTop: ESPACAMENTO.md,
   },
   textoErro: {
-    color: '#EF4444',
+    color: CORES.erro,
     fontSize: 15,
     textAlign: 'center',
-    marginBottom: 16,
+    marginTop: ESPACAMENTO.md,
+    marginBottom: ESPACAMENTO.lg,
   },
   botaoRecarregar: {
-    backgroundColor: '#F58220',
+    backgroundColor: CORES.laranjaCs,
     paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
+    paddingHorizontal: 22,
+    borderRadius: BORDAS.md,
   },
   textoBotaoRecarregar: {
-    color: '#0F1923',
+    color: CORES.textoInvertido,
     fontWeight: 'bold',
+    fontSize: 14,
   },
   cabecalho: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: ESPACAMENTO.lg,
+    paddingTop: ESPACAMENTO.md,
+    paddingBottom: ESPACAMENTO.sm,
   },
   titulo: {
-    color: '#1E4C8A',
+    color: CORES.textoPrincipal,
     fontSize: 22,
     fontWeight: 'bold',
+    letterSpacing: 0.3,
   },
   contador: {
-    color: '#2B6CB0',
+    color: CORES.textoSecundario,
     fontSize: 13,
     marginTop: 2,
+  },
+  botaoIrInventario: {
+    backgroundColor: CORES.fundoCard,
+    borderWidth: 1,
+    borderColor: CORES.borda,
+    padding: ESPACAMENTO.sm,
+    borderRadius: BORDAS.md,
   },
   barraBusca: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 8,
-    backgroundColor: '#FFFFFF',
+    marginHorizontal: ESPACAMENTO.lg,
+    marginTop: ESPACAMENTO.xs,
+    marginBottom: ESPACAMENTO.sm,
+    backgroundColor: CORES.fundoInput,
     borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    height: 44,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.md,
+    paddingHorizontal: ESPACAMENTO.md,
+    height: 46,
+  },
+  iconeBusca: {
+    marginRight: ESPACAMENTO.sm,
   },
   campoBusca: {
     flex: 1,
-    color: '#1E3A5F',
+    color: CORES.textoPrincipal,
     fontSize: 14,
   },
   botaoLimpar: {
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-  },
-  textoLimpar: {
-    color: '#2B6CB0',
-    fontSize: 12,
-    fontWeight: '600',
+    padding: ESPACAMENTO.xs,
   },
   linhaFiltroTipo: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    marginBottom: 8,
-    gap: 8,
+    paddingHorizontal: ESPACAMENTO.lg,
+    marginBottom: ESPACAMENTO.sm,
+    gap: ESPACAMENTO.sm,
   },
-  botaoFiltroTipo: {
+  chipFiltro: {
     flex: 1,
-    backgroundColor: '#EBF4FC',
-    borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 6,
-    paddingVertical: 8,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: CORES.fundoSuperficie,
+    borderWidth: 1,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.sm,
+    paddingVertical: 8,
+    paddingHorizontal: ESPACAMENTO.sm,
+    gap: 6,
   },
-  botaoFiltroTipoAtivo: {
-    backgroundColor: '#1E4C8A',
-    borderColor: '#1E4C8A',
+  chipFiltroAtivo: {
+    backgroundColor: CORES.laranjaCs,
+    borderColor: CORES.laranjaCs,
   },
-  textoFiltroTipo: {
-    color: '#1E4C8A',
+  textoChipFiltro: {
+    color: CORES.textoSecundario,
     fontSize: 12,
     fontWeight: '600',
   },
-  textoFiltroTipoAtivo: {
-    color: '#FFFFFF',
+  textoChipFiltroAtivo: {
+    color: CORES.textoInvertido,
     fontWeight: 'bold',
   },
   gradeCaixas: {
-    paddingHorizontal: 10,
-    paddingBottom: 24,
+    paddingHorizontal: ESPACAMENTO.sm,
+    paddingBottom: ESPACAMENTO.hero,
   },
   vazioContainer: {
     alignItems: 'center',
-    padding: 30,
-    marginTop: 40,
+    padding: ESPACAMENTO.hero,
+    marginTop: 30,
+    gap: ESPACAMENTO.sm,
   },
   vazioTitulo: {
-    color: '#1E4C8A',
+    color: CORES.textoPrincipal,
     fontSize: 16,
     fontWeight: 'bold',
   },
   vazioSubtitulo: {
-    color: '#2B6CB0',
-    fontSize: 14,
+    color: CORES.textoSecundario,
+    fontSize: 13,
     textAlign: 'center',
-    marginTop: 6,
-    marginBottom: 16,
+    marginBottom: ESPACAMENTO.md,
   },
   botaoAcao: {
-    backgroundColor: '#F58220',
+    backgroundColor: CORES.laranjaCs,
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 8,
+    borderRadius: BORDAS.md,
   },
   textoBotaoAcao: {
-    color: '#0F1923',
+    color: CORES.textoInvertido,
     fontWeight: 'bold',
+    fontSize: 13,
   },
 
   // Estilos da Tela de Abertura da Caixa Selecionada
@@ -1063,73 +1175,128 @@ const styles = StyleSheet.create({
   botaoVoltar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    gap: 6,
+    paddingHorizontal: ESPACAMENTO.lg,
+    paddingVertical: ESPACAMENTO.md,
+    gap: ESPACAMENTO.sm,
+  },
+  iconeVoltarContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: BORDAS.sm,
+    backgroundColor: CORES.fundoCard,
+    borderWidth: 1,
+    borderColor: CORES.borda,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   textoBotaoVoltar: {
-    color: '#1E4C8A',
-    fontSize: 14,
-    fontWeight: 'bold',
+    color: CORES.textoSecundario,
+    fontSize: 13,
+    fontWeight: '600',
   },
   cabecalhoCaixa: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EBF4FC',
-    marginHorizontal: 16,
-    borderRadius: 8,
-    padding: 12,
+    backgroundColor: CORES.fundoCard,
+    marginHorizontal: ESPACAMENTO.lg,
+    borderRadius: BORDAS.md,
+    padding: ESPACAMENTO.md,
     borderWidth: 1,
-    borderColor: '#68A3E5',
+    borderColor: CORES.borda,
+  },
+  containerImagemCaixaTopo: {
+    width: 72,
+    height: 66,
+    backgroundColor: CORES.fundoInput,
+    borderRadius: BORDAS.sm,
+    borderWidth: 1,
+    borderColor: CORES.bordaSuave,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   imagemCaixaTopo: {
-    width: 65,
-    height: 60,
+    width: 64,
+    height: 58,
   },
   infoCaixaTopo: {
     flex: 1,
-    marginLeft: 12,
+    marginLeft: ESPACAMENTO.md,
   },
   nomeCaixaTopo: {
-    color: '#1E3A5F',
-    fontSize: 16,
+    color: CORES.textoPrincipal,
+    fontSize: 15,
     fontWeight: 'bold',
+    lineHeight: 20,
   },
-  subtituloCaixaTopo: {
-    color: '#2B6CB0',
-    fontSize: 12,
-    marginTop: 2,
+  linhaResumoCaixa: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    gap: 6,
+  },
+  badgeResumoSkins: {
+    backgroundColor: CORES.fundoCardElevado,
+    borderWidth: 1,
+    borderColor: CORES.borda,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: BORDAS.sm,
+  },
+  textoResumoSkins: {
+    color: CORES.textoSecundario,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  badgeResumoRaras: {
+    backgroundColor: 'rgba(255, 215, 0, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.35)',
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: BORDAS.sm,
+  },
+  textoResumoRaras: {
+    color: CORES.ouro,
+    fontSize: 11,
+    fontWeight: 'bold',
   },
 
   // Câmara da Roleta
   containerRoleta: {
-    backgroundColor: '#0F172A',
-    marginHorizontal: 16,
-    marginTop: 14,
-    borderRadius: 10,
-    padding: 12,
+    backgroundColor: CORES.fundoSuperficie,
+    marginHorizontal: ESPACAMENTO.lg,
+    marginTop: ESPACAMENTO.md,
+    borderRadius: BORDAS.lg,
+    padding: ESPACAMENTO.md,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: CORES.borda,
   },
   topoRoleta: {
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: ESPACAMENTO.md,
+  },
+  linhaTituloRoleta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   tituloRoleta: {
-    color: '#F58220',
+    color: CORES.laranjaCs,
     fontSize: 13,
     fontWeight: 'bold',
     letterSpacing: 1,
   },
   subtituloRoleta: {
-    color: '#94A3B8',
-    fontSize: 11,
-    marginTop: 2,
+    color: CORES.textoSecundario,
+    fontSize: 12,
+    marginTop: 3,
   },
   areaEsteira: {
-    height: 160,
-    backgroundColor: '#020617',
-    borderRadius: 8,
+    height: 164,
+    backgroundColor: '#070A0F',
+    borderRadius: BORDAS.md,
+    borderWidth: 1,
+    borderColor: CORES.bordaDestaque,
     overflow: 'hidden',
     position: 'relative',
     justifyContent: 'center',
@@ -1140,13 +1307,13 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: 0,
     height: 0,
-    borderLeftWidth: 10,
-    borderRightWidth: 10,
+    borderLeftWidth: 9,
+    borderRightWidth: 9,
     borderTopWidth: 14,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderTopColor: '#F58220',
-    zIndex: 10,
+    borderTopColor: CORES.laranjaCs,
+    zIndex: 20,
   },
   linhaCentral: {
     position: 'absolute',
@@ -1154,9 +1321,9 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignSelf: 'center',
     width: 2,
-    backgroundColor: '#F58220',
-    opacity: 0.8,
-    zIndex: 9,
+    backgroundColor: CORES.laranjaCs,
+    opacity: 0.65,
+    zIndex: 10,
   },
   marcadorInferior: {
     position: 'absolute',
@@ -1164,187 +1331,219 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: 0,
     height: 0,
-    borderLeftWidth: 10,
-    borderRightWidth: 10,
+    borderLeftWidth: 9,
+    borderRightWidth: 9,
     borderBottomWidth: 14,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderBottomColor: '#F58220',
-    zIndex: 10,
+    borderBottomColor: CORES.laranjaCs,
+    zIndex: 20,
   },
   conteudoRoleta: {
     alignItems: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 12,
   },
   botaoAbrirCaixa: {
-    backgroundColor: '#F58220',
+    backgroundColor: CORES.laranjaCs,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
+    borderRadius: BORDAS.md,
     paddingVertical: 14,
-    marginTop: 14,
-    gap: 8,
+    marginTop: ESPACAMENTO.md,
+    gap: ESPACAMENTO.sm,
   },
   botaoAbrirDesativado: {
-    opacity: 0.6,
+    opacity: 0.7,
   },
   textoBotaoAbrirCaixa: {
-    color: '#0F1923',
-    fontSize: 16,
+    color: CORES.textoInvertido,
+    fontSize: 15,
     fontWeight: 'bold',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
 
   // Seção de Conteúdo da Caixa
   secaoConteudo: {
-    paddingHorizontal: 16,
-    paddingTop: 18,
-    paddingBottom: 40,
+    paddingHorizontal: ESPACAMENTO.lg,
+    paddingTop: ESPACAMENTO.xl,
+    paddingBottom: ESPACAMENTO.hero,
   },
   cabecalhoSecao: {
-    marginBottom: 12,
+    marginBottom: ESPACAMENTO.md,
   },
   tituloSecao: {
-    color: '#1E4C8A',
-    fontSize: 17,
+    color: CORES.textoPrincipal,
+    fontSize: 16,
     fontWeight: 'bold',
   },
   abasConteudo: {
     flexDirection: 'row',
-    marginTop: 8,
-    gap: 8,
+    marginTop: ESPACAMENTO.sm,
+    gap: ESPACAMENTO.sm,
   },
   abaItem: {
-    backgroundColor: '#EBF4FC',
+    backgroundColor: CORES.fundoSuperficie,
     borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 6,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.sm,
     paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: ESPACAMENTO.md,
   },
   abaItemAtiva: {
-    backgroundColor: '#1E4C8A',
-    borderColor: '#1E4C8A',
+    backgroundColor: CORES.fundoCardElevado,
+    borderColor: CORES.laranjaCs,
   },
   textoAba: {
-    color: '#1E4C8A',
+    color: CORES.textoSecundario,
     fontSize: 12,
     fontWeight: '600',
   },
   textoAbaAtiva: {
-    color: '#FFFFFF',
+    color: CORES.laranjaCs,
     fontWeight: 'bold',
   },
   gradeSkins: {
-    gap: 8,
+    gap: ESPACAMENTO.sm,
   },
   cardSkinGrade: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.fundoCard,
     borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderLeftWidth: 4,
-    borderRadius: 8,
-    padding: 8,
+    borderColor: CORES.borda,
+    borderRadius: BORDAS.md,
+    padding: ESPACAMENTO.sm,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  indicadorRaridadeGrade: {
+    width: 3,
+    height: '100%',
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+  },
+  containerImagemGrade: {
+    width: 68,
+    height: 52,
+    backgroundColor: CORES.fundoInput,
+    borderRadius: BORDAS.sm,
+    borderWidth: 1,
+    borderColor: CORES.bordaSuave,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 4,
   },
   imagemSkinGrade: {
-    width: 65,
-    height: 48,
-    backgroundColor: '#EBF4FC',
-    borderRadius: 4,
+    width: 62,
+    height: 46,
   },
   semImagemGrade: {
-    width: 65,
-    height: 48,
-    backgroundColor: '#EBF4FC',
-    borderRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
   },
   textoSemImagemGrade: {
-    color: '#2B6CB0',
+    color: CORES.textoMudo,
     fontSize: 11,
     fontWeight: 'bold',
   },
   infoSkinGrade: {
     flex: 1,
-    marginLeft: 10,
+    marginLeft: ESPACAMENTO.md,
   },
   nomeSkinGrade: {
-    color: '#1E3A5F',
+    color: CORES.textoPrincipal,
     fontSize: 13,
     fontWeight: 'bold',
+    lineHeight: 18,
+  },
+  linhaRaridadeGrade: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
+    gap: 5,
+  },
+  pontoRaridade: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   raridadeSkinGrade: {
     fontSize: 11,
     fontWeight: '600',
-    marginTop: 2,
   },
 
   // Modal de Revelação da Skin
   modalFundo: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    backgroundColor: 'rgba(5, 8, 14, 0.92)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: ESPACAMENTO.lg,
   },
   modalCard: {
     width: '100%',
     maxWidth: 380,
-    backgroundColor: '#0F172A',
-    borderRadius: 14,
+    backgroundColor: CORES.fundoCard,
+    borderRadius: BORDAS.lg,
     borderWidth: 2,
-    padding: 20,
+    padding: ESPACAMENTO.xl,
     alignItems: 'center',
   },
   modalParabens: {
-    color: '#F58220',
-    fontSize: 22,
+    color: CORES.laranjaCs,
+    fontSize: 20,
     fontWeight: 'bold',
     letterSpacing: 1,
   },
   modalSubparabens: {
-    color: '#94A3B8',
-    fontSize: 13,
+    color: CORES.textoSecundario,
+    fontSize: 12,
     marginTop: 2,
-    marginBottom: 10,
+    marginBottom: ESPACAMENTO.sm,
   },
   badgeStatTrak: {
-    backgroundColor: '#C95F08',
+    backgroundColor: 'rgba(245, 130, 32, 0.15)',
+    borderWidth: 1,
+    borderColor: CORES.laranjaCs,
     paddingVertical: 3,
     paddingHorizontal: 10,
-    borderRadius: 4,
-    marginBottom: 6,
+    borderRadius: BORDAS.sm,
+    marginBottom: ESPACAMENTO.xs,
   },
   textoBadgeStatTrak: {
-    color: '#FFFFFF',
+    color: CORES.laranjaCs,
     fontSize: 11,
     fontWeight: 'bold',
   },
   modalContainerImagem: {
     width: '100%',
     height: 140,
+    backgroundColor: CORES.fundoInput,
+    borderRadius: BORDAS.md,
+    borderWidth: 1,
+    borderColor: CORES.bordaSuave,
     justifyContent: 'center',
     alignItems: 'center',
-    marginVertical: 10,
+    marginVertical: ESPACAMENTO.md,
+    padding: ESPACAMENTO.sm,
   },
   modalImagem: {
-    width: '90%',
-    height: 130,
+    width: '92%',
+    height: 120,
   },
   modalNomeSkin: {
-    color: '#FFFFFF',
-    fontSize: 18,
+    color: CORES.textoPrincipal,
+    fontSize: 17,
     fontWeight: 'bold',
     textAlign: 'center',
   },
   badgeRaridadeModal: {
     paddingVertical: 3,
     paddingHorizontal: 10,
-    borderRadius: 4,
+    borderRadius: BORDAS.sm,
     marginTop: 6,
   },
   textoBadgeRaridadeModal: {
@@ -1353,22 +1552,22 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   modalCondicao: {
-    color: '#94A3B8',
+    color: CORES.textoSecundario,
     fontSize: 12,
     marginTop: 6,
   },
   boxPreco: {
     width: '100%',
-    backgroundColor: '#1E293B',
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 14,
+    backgroundColor: CORES.fundoSuperficie,
+    borderRadius: BORDAS.md,
+    padding: ESPACAMENTO.md,
+    marginTop: ESPACAMENTO.md,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: CORES.borda,
   },
   tituloBoxPreco: {
-    color: '#94A3B8',
+    color: CORES.textoMudo,
     fontSize: 10,
     fontWeight: 'bold',
     letterSpacing: 1,
@@ -1376,11 +1575,11 @@ const styles = StyleSheet.create({
   linhaCarregandoPreco: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: ESPACAMENTO.sm,
     marginTop: 6,
   },
   textoCarregandoPreco: {
-    color: '#F8FAFC',
+    color: CORES.textoSecundario,
     fontSize: 13,
   },
   linhaPreco: {
@@ -1388,47 +1587,58 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   valorPreco: {
-    color: '#10B981',
-    fontSize: 20,
+    color: CORES.sucesso,
+    fontSize: 22,
     fontWeight: 'bold',
   },
   fontePreco: {
-    color: '#64748B',
+    color: CORES.textoMudo,
     fontSize: 11,
     marginTop: 2,
   },
+  linhaSalvoAutomatico: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: ESPACAMENTO.md,
+  },
   textoSalvoAutomatico: {
-    color: '#10B981',
+    color: CORES.sucesso,
     fontSize: 12,
     fontWeight: '600',
-    marginTop: 12,
-    textAlign: 'center',
   },
   acoesModal: {
     width: '100%',
-    marginTop: 10,
-    gap: 8,
+    marginTop: ESPACAMENTO.lg,
+    gap: ESPACAMENTO.sm,
   },
   botaoAbrirNovamente: {
-    backgroundColor: '#F58220',
+    backgroundColor: CORES.laranjaCs,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
+    borderRadius: BORDAS.md,
     paddingVertical: 12,
     gap: 6,
   },
   textoBotaoAbrirNovamente: {
-    color: '#0F1923',
-    fontSize: 15,
+    color: CORES.textoInvertido,
+    fontSize: 14,
     fontWeight: 'bold',
   },
-  botaoFecharModal: {
-    paddingVertical: 8,
+  botaoGuardarInventario: {
+    backgroundColor: CORES.fundoSuperficie,
+    borderWidth: 1,
+    borderColor: CORES.borda,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: BORDAS.md,
+    paddingVertical: 10,
+    gap: 6,
   },
-  textoBotaoFecharModal: {
-    color: '#94A3B8',
+  textoBotaoGuardarInventario: {
+    color: CORES.textoPrincipal,
     fontSize: 13,
     fontWeight: '600',
   },
