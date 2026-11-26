@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "CS2 SkinWiki",
-    "slug": "cs2-skinwiki",
+    "name": "Garbskins CS2",
+    "slug": "garbskins-cs2",
     "version": "1.0.0",
     "orientation": "portrait",
-    "scheme": "cs2skinwiki",
+    "scheme": "garbskinscs2",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "web": {
