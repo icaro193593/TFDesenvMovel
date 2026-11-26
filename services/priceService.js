@@ -1,37 +1,35 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Chave utilizada para salvar a API Key do PriceEmpire nas configurações locais
 const STORAGE_KEY_PRICEMPIRE = '@pricempire_api_key';
 
-// Chave utilizada para salvar a moeda selecionada pelo usuário
 export const STORAGE_KEY_MOEDA = '@moeda_selecionada';
 
-// Taxas de referência para fallback local e conversão entre moedas salvas
+const CACHE_PRECOS_TTL_MS = 10 * 60 * 1000;
+const cachePrecos = new Map();
+const requisicoesEmAndamento = new Map();
+
+function aguardarMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export const TAXAS_CAMBIO = {
   USD: 1,
   BRL: 5.80,
   EUR: 0.92,
 };
 
-// Mapeamento de códigos de moeda da Steam Community Market API
 const STEAM_CURRENCY_IDS = {
   USD: 1,
   EUR: 3,
   BRL: 7,
 };
 
-/**
- * Normaliza e valida o código da moeda, retornando null quando inválido.
- */
 function validarMoeda(moeda) {
   if (typeof moeda !== 'string') return null;
   const codigo = moeda.trim().toUpperCase();
   return Object.prototype.hasOwnProperty.call(TAXAS_CAMBIO, codigo) ? codigo : null;
 }
 
-/**
- * Lê a moeda selecionada no AsyncStorage (padrão 'USD' se vazio ou inválido).
- */
 export async function obterMoedaSelecionada() {
   try {
     const salva = await AsyncStorage.getItem(STORAGE_KEY_MOEDA);
@@ -41,25 +39,16 @@ export async function obterMoedaSelecionada() {
   }
 }
 
-/**
- * Salva a moeda selecionada no AsyncStorage.
- */
 export async function salvarMoedaSelecionada(moeda) {
   const moedaValida = validarMoeda(moeda) || 'USD';
   try {
     await AsyncStorage.setItem(STORAGE_KEY_MOEDA, moedaValida);
   } catch (err) {
-    // Mantém execução segura mesmo se houver falha de armazenamento
+
   }
   return moedaValida;
 }
 
-/**
- * Formata um valor numérico na moeda informada:
- * USD -> "$ 12.34 USD"
- * BRL -> "R$ 71,57 BRL"
- * EUR -> "€ 11,35 EUR"
- */
 export function formatarPrecoMoeda(valor, moeda = 'USD') {
   const moedaValida = validarMoeda(moeda) || 'USD';
   const numero = Number(valor);
@@ -75,9 +64,6 @@ export function formatarPrecoMoeda(valor, moeda = 'USD') {
   return `$ ${fixado} USD`;
 }
 
-/**
- * Converte um valor entre USD, BRL e EUR usando TAXAS_CAMBIO.
- */
 export function converterValorMoeda(valor, moedaOrigem = 'USD', moedaDestino = 'USD') {
   const numero = Number(valor);
   if (!Number.isFinite(numero)) return 0;
@@ -94,14 +80,9 @@ export function converterValorMoeda(valor, moedaOrigem = 'USD', moedaDestino = '
   return Number(valorConvertido.toFixed(2));
 }
 
-/**
- * Faz o parse seguro de strings de preço da Steam em USD, BRL e EUR:
- * Exemplos: "$27.16", "$1,234.56", "R$ 158,84", "R$ 1.234,56", "24,76€", "1.234,56€"
- */
 function parsearPrecoSteam(precoTexto, moeda = 'USD') {
   if (typeof precoTexto !== 'string') return 0;
 
-  // Trata formato europeu da Steam com traços (ex: "24,--€") antes de limpar símbolos
   const limpo = precoTexto
     .replace(/,--/g, ',00')
     .replace(/\.--/g, '.00')
@@ -117,21 +98,21 @@ function parsearPrecoSteam(precoTexto, moeda = 'USD') {
 
   if (ultimaVirgula !== -1 && ultimoPonto !== -1) {
     if (ultimoPonto > ultimaVirgula) {
-      // Formato USD: 1,234.56 -> vírgula é milhar, ponto é decimal
+
       normalizado = limpo.replace(/,/g, '');
     } else {
-      // Formato BRL/EUR: 1.234,56 -> ponto é milhar, vírgula é decimal
+
       normalizado = limpo.replace(/\./g, '').replace(',', '.');
     }
   } else if (ultimaVirgula !== -1) {
-    // Apenas vírgula: verifica se é separador de milhar em USD (ex: 1,234) ou decimal (158,84)
+
     if (moeda === 'USD' && /^\d{1,3}(,\d{3})+$/.test(limpo)) {
       normalizado = limpo.replace(/,/g, '');
     } else {
       normalizado = limpo.replace(',', '.');
     }
   } else if (ultimoPonto !== -1) {
-    // Apenas ponto: verifica se é separador de milhar em BRL/EUR (ex: 1.234)
+
     if (moeda !== 'USD' && /^\d{1,3}(\.\d{3})+$/.test(limpo)) {
       normalizado = limpo.replace(/\./g, '');
     }
@@ -141,165 +122,283 @@ function parsearPrecoSteam(precoTexto, moeda = 'USD') {
   return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : 0;
 }
 
-/**
- * Normaliza o nome da skin para o formato padrão do mercado da Steam / PriceEmpire:
- * Exemplo: "AK-47 | Redline (Field-Tested)" ou "StatTrak™ AK-47 | Redline (Field-Tested)"
- */
-export function formatarMarketHashName(nomeSkin, wearNome, isStatTrak) {
-  let nomeLimpo = nomeSkin.trim();
+function analisarTipoItem(skinNome, opcoes = {}) {
+  const nomeLimpo = String(skinNome || '').trim();
+  const { tipoCaixa = '', isSouvenir = false, isFacaOuLuva = false } = opcoes || {};
+  const tipoStr = String(tipoCaixa || '');
 
-  // Verifica se é item raro com estrela (faca ou luva)
-  const isSpecial = nomeLimpo.startsWith('★');
-  if (isSpecial) {
-    nomeLimpo = nomeLimpo.replace('★', '').trim();
-  }
+  const ehAdesivo = /sticker|autograph/i.test(tipoStr) || /^Sticker\s*\|/i.test(nomeLimpo);
+  const ehPatch = !ehAdesivo && (/patch/i.test(tipoStr) || /^Patch\s*\|/i.test(nomeLimpo));
+  const ehGrafite =
+    !ehAdesivo &&
+    !ehPatch &&
+    (/graffiti/i.test(tipoStr) || /^Sealed Graffiti\s*\|/i.test(nomeLimpo));
+  const ehPin = !ehAdesivo && !ehPatch && !ehGrafite && /pin|collectible/i.test(tipoStr);
+  const ehMusicKit =
+    !ehAdesivo &&
+    !ehPatch &&
+    !ehGrafite &&
+    !ehPin &&
+    (/music/i.test(tipoStr) || /music kit/i.test(nomeLimpo));
 
-  let hash = nomeLimpo;
+  const ehSouvenir =
+    !ehAdesivo &&
+    !ehPatch &&
+    !ehGrafite &&
+    !ehPin &&
+    !ehMusicKit &&
+    (Boolean(isSouvenir) || /souvenir/i.test(tipoStr) || /^Souvenir\s+/i.test(nomeLimpo));
 
-  // Se tiver estado de conservação (wear), anexa entre parênteses
-  if (wearNome) {
-    hash = `${hash} (${wearNome})`;
-  }
+  const ehLuva = /gloves|hand wraps/i.test(nomeLimpo);
+  const temEstrela = nomeLimpo.startsWith('★') || Boolean(isFacaOuLuva);
+  const nomeSemEstrela = nomeLimpo.replace(/^★\s*/, '').trim();
+  const ehFacaVanilla =
+    !ehAdesivo &&
+    !ehPatch &&
+    !ehGrafite &&
+    !ehPin &&
+    !ehMusicKit &&
+    !ehSouvenir &&
+    !ehLuva &&
+    temEstrela &&
+    !nomeSemEstrela.includes(' | ');
 
-  // Se for StatTrak™, inclui o prefixo oficial
-  if (isStatTrak) {
-    if (isSpecial) {
-      return `★ StatTrak™ ${hash}`;
-    }
-    return `StatTrak™ ${hash}`;
-  }
+  const aceitaWear =
+    !ehAdesivo && !ehPatch && !ehGrafite && !ehPin && !ehMusicKit && !ehFacaVanilla;
 
-  if (isSpecial) {
-    return `★ ${hash}`;
-  }
+  const permiteStatTrak =
+    !ehAdesivo && !ehPatch && !ehGrafite && !ehPin && !ehSouvenir && !ehLuva;
 
-  return hash;
+  return {
+    nomeLimpo,
+    nomeSemEstrela,
+    ehAdesivo,
+    ehPatch,
+    ehGrafite,
+    ehPin,
+    ehMusicKit,
+    ehSouvenir,
+    ehLuva,
+    temEstrela,
+    ehFacaVanilla,
+    aceitaWear,
+    permiteStatTrak,
+  };
 }
 
-/**
- * Calcula uma estimativa de preço de mercado realista baseada na raridade, wear e StatTrak,
- * utilizada como fallback confiável quando a API externa não responder ou for bloqueada por CORS/rate-limit.
- */
-function calcularPrecoEstimado(raridadeNome, wearNome, isStatTrak) {
-  const raridade = (raridadeNome || '').toLowerCase();
-  const wear = (wearNome || '').toLowerCase();
+export function formatarMarketHashName(
+  skinNome,
+  wearNome = 'Field-Tested',
+  isStatTrak = false,
+  opcoes = {}
+) {
+  const info = analisarTipoItem(skinNome, opcoes);
+  const { nomeLimpo } = info;
 
-  let base = 1.5;
+  if (!nomeLimpo) return '';
 
-  if (raridade.includes('mil-spec') || raridade.includes('rare_weapon')) {
-    base = 0.85 + Math.random() * 2.2;
-  } else if (raridade.includes('restricted') || raridade.includes('mythical')) {
-    base = 4.5 + Math.random() * 11.0;
-  } else if (raridade.includes('classified') || raridade.includes('legendary')) {
-    base = 22.0 + Math.random() * 55.0;
-  } else if (raridade.includes('covert') || raridade.includes('ancient')) {
-    base = 75.0 + Math.random() * 280.0;
-  } else if (raridade.includes('special') || raridade.includes('faca') || raridade.includes('knife') || raridade.includes('glove')) {
-    base = 240.0 + Math.random() * 950.0;
+  if (info.ehAdesivo) {
+    return /^Sticker\s*\|/i.test(nomeLimpo) ? nomeLimpo : `Sticker | ${nomeLimpo}`;
   }
 
-  // Multiplicador por condição de uso (wear)
-  let multiplicadorWear = 1.0;
-  if (wear.includes('factory new')) {
-    multiplicadorWear = 1.65;
-  } else if (wear.includes('minimal wear')) {
-    multiplicadorWear = 1.25;
-  } else if (wear.includes('field-tested')) {
-    multiplicadorWear = 0.95;
-  } else if (wear.includes('well-worn')) {
-    multiplicadorWear = 0.8;
-  } else if (wear.includes('battle-scarred')) {
-    multiplicadorWear = 0.7;
+  if (info.ehPatch) {
+    return /^Patch\s*\|/i.test(nomeLimpo) ? nomeLimpo : `Patch | ${nomeLimpo}`;
   }
 
-  let final = base * multiplicadorWear;
+  if (info.ehGrafite) {
+    if (/^Sealed Graffiti\s*\|/i.test(nomeLimpo)) {
+      return nomeLimpo;
+    }
+    if (/^Graffiti\s*\|/i.test(nomeLimpo)) {
+      return nomeLimpo.replace(/^Graffiti\s*\|/i, 'Sealed Graffiti |');
+    }
+    return `Sealed Graffiti | ${nomeLimpo}`;
+  }
 
-  // StatTrak valoriza a skin em ~2.2x
-  if (isStatTrak) {
-    final *= 2.2;
+  if (info.ehPin) {
+    return nomeLimpo;
+  }
+
+  if (info.ehMusicKit) {
+    const jaTemStatTrak = /StatTrak™/i.test(nomeLimpo);
+    if (jaTemStatTrak) {
+      return nomeLimpo;
+    }
+    return isStatTrak ? `StatTrak™ ${nomeLimpo}` : nomeLimpo;
+  }
+
+  if (info.ehFacaVanilla) {
+    const corpoVanilla = info.nomeSemEstrela.replace(/^StatTrak™\s+/i, '').trim();
+    const aplicarSt = Boolean(isStatTrak) || /^StatTrak™\s+/i.test(info.nomeSemEstrela);
+    return aplicarSt ? `★ StatTrak™ ${corpoVanilla}` : `★ ${corpoVanilla}`;
+  }
+
+  const wearLimpo = typeof wearNome === 'string' ? wearNome.trim() : '';
+  const sufixoWear = wearLimpo ? ` (${wearLimpo})` : '';
+
+  if (info.ehSouvenir) {
+    const corpoSouvenir = /^Souvenir\s+/i.test(info.nomeSemEstrela)
+      ? info.nomeSemEstrela
+      : `Souvenir ${info.nomeSemEstrela}`;
+    return `${corpoSouvenir}${sufixoWear}`;
+  }
+
+  if (info.ehLuva) {
+    return info.temEstrela
+      ? `★ ${info.nomeSemEstrela}${sufixoWear}`
+      : `${info.nomeSemEstrela}${sufixoWear}`;
+  }
+
+  const jaTemStatTrak = /^StatTrak™\s+/i.test(info.nomeSemEstrela);
+  const corpoSkin = info.nomeSemEstrela.replace(/^StatTrak™\s+/i, '').trim();
+  const aplicarStatTrak = Boolean(isStatTrak) || jaTemStatTrak;
+
+  if (info.temEstrela) {
+    return aplicarStatTrak
+      ? `★ StatTrak™ ${corpoSkin}${sufixoWear}`
+      : `★ ${corpoSkin}${sufixoWear}`;
+  }
+
+  return aplicarStatTrak ? `StatTrak™ ${corpoSkin}${sufixoWear}` : `${corpoSkin}${sufixoWear}`;
+}
+
+function calcularHashDeterministico(str) {
+  const texto = String(str || '');
+  let hash = 0;
+  for (let i = 0; i < texto.length; i++) {
+    hash = (hash << 5) - hash + texto.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function interpolarFaixaHash(fatorHash, min, max) {
+  return min + fatorHash * (max - min);
+}
+
+function calcularFallbackDeterministico({
+  skinId = '',
+  skinNome = '',
+  raridadeNome = '',
+  wearNome = '',
+  isStatTrak = false,
+  opcoes = {},
+}) {
+  const info = analisarTipoItem(skinNome, opcoes);
+  const nomeLower = info.nomeLimpo.toLowerCase();
+  const raridadeLower = String(raridadeNome || '').toLowerCase();
+  const wearLimpo = typeof wearNome === 'string' ? wearNome.trim() : '';
+  const wearLower = wearLimpo.toLowerCase();
+
+  const chaveHash = info.nomeLimpo || String(skinId || raridadeNome || 'item');
+  const hash = calcularHashDeterministico(chaveHash);
+  const fatorHash = (hash % 1000) / 1000;
+
+  let baseUsd = null;
+  let ehItemHistoricoSemMultiplicador = false;
+
+  if (nomeLower.includes('katowice 2014')) {
+    ehItemHistoricoSemMultiplicador = true;
+    if (nomeLower.includes('(holo)')) {
+      if (nomeLower.includes('ibuypower')) baseUsd = 55000;
+      else if (nomeLower.includes('titan')) baseUsd = 50000;
+      else if (nomeLower.includes('reason')) baseUsd = 35000;
+      else if (nomeLower.includes('vox')) baseUsd = 20000;
+      else if (nomeLower.includes('dignitas')) baseUsd = 16000;
+      else if (nomeLower.includes('natus vincere')) baseUsd = 14000;
+      else baseUsd = interpolarFaixaHash(fatorHash, 4500, 12000);
+    } else if (nomeLower.includes('(foil)')) {
+      baseUsd = interpolarFaixaHash(fatorHash, 1600, 2800);
+    } else {
+      if (nomeLower.includes('ibuypower')) baseUsd = 2400;
+      else if (nomeLower.includes('titan')) baseUsd = 1800;
+      else baseUsd = interpolarFaixaHash(fatorHash, 280, 750);
+    }
+  } else if (info.aceitaWear || info.ehFacaVanilla) {
+    if (nomeLower.includes('dragon lore')) baseUsd = 8500;
+    else if (nomeLower.includes('gungnir')) baseUsd = 9500;
+    else if (nomeLower.includes('wild lotus')) baseUsd = 7500;
+    else if (/\bhowl\b/i.test(nomeLower)) baseUsd = 5200;
+    else if (/\bprince\b/i.test(nomeLower)) baseUsd = 3500;
+    else if (nomeLower.includes('gold arabesque')) baseUsd = 2800;
+    else if (nomeLower.includes('medusa')) baseUsd = 2600;
+  }
+
+  const ehFacaOuLuvaItem =
+    Boolean(opcoes?.isFacaOuLuva) ||
+    info.nomeLimpo.startsWith('★') ||
+    raridadeLower.includes('extraordinary') ||
+    nomeLower.includes('knife') ||
+    nomeLower.includes('glove') ||
+    nomeLower.includes('hand wraps');
+
+  if (baseUsd === null && ehFacaOuLuvaItem) {
+    baseUsd = interpolarFaixaHash(fatorHash, 160, 850);
+  }
+
+  if (baseUsd === null) {
+    if (raridadeLower.includes('contraband')) {
+      baseUsd = 4500;
+    } else if (raridadeLower.includes('covert') || raridadeLower.includes('ancient')) {
+      baseUsd = interpolarFaixaHash(fatorHash, 18, 110);
+    } else if (raridadeLower.includes('classified') || raridadeLower.includes('legendary')) {
+      baseUsd = interpolarFaixaHash(fatorHash, 5, 32);
+    } else if (raridadeLower.includes('restricted') || raridadeLower.includes('mythical')) {
+      baseUsd = interpolarFaixaHash(fatorHash, 1.5, 8.5);
+    } else if (raridadeLower.includes('mil-spec') || raridadeLower.includes('rare_weapon')) {
+      baseUsd = interpolarFaixaHash(fatorHash, 0.25, 1.5);
+    } else if (raridadeLower.includes('industrial')) {
+      baseUsd = interpolarFaixaHash(fatorHash, 0.08, 0.4);
+    } else if (raridadeLower.includes('consumer') || raridadeLower.includes('base')) {
+      baseUsd = interpolarFaixaHash(fatorHash, 0.03, 0.12);
+    } else if (raridadeLower.includes('exotic')) {
+      baseUsd = interpolarFaixaHash(fatorHash, 12, 45);
+    } else if (raridadeLower.includes('remarkable')) {
+      baseUsd = interpolarFaixaHash(fatorHash, 1.8, 9);
+    } else if (raridadeLower.includes('high grade')) {
+      baseUsd = interpolarFaixaHash(fatorHash, 0.25, 1.4);
+    } else {
+      baseUsd = interpolarFaixaHash(fatorHash, 1.5, 8.5);
+    }
+  }
+
+  let final = baseUsd;
+
+  if (!ehItemHistoricoSemMultiplicador && info.aceitaWear && wearLimpo.length > 0) {
+    let multiplicadorWear = 1.0;
+    if (wearLower.includes('factory new')) multiplicadorWear = 1.45;
+    else if (wearLower.includes('minimal wear')) multiplicadorWear = 1.2;
+    else if (wearLower.includes('field-tested')) multiplicadorWear = 1.0;
+    else if (wearLower.includes('well-worn')) multiplicadorWear = 0.9;
+    else if (wearLower.includes('battle-scarred')) multiplicadorWear = 0.8;
+
+    final *= multiplicadorWear;
+  }
+
+  if (!ehItemHistoricoSemMultiplicador && isStatTrak && info.permiteStatTrak) {
+    final *= 1.45;
   }
 
   return Number(final.toFixed(2));
 }
 
-/**
- * Consulta o valor de mercado da skin via API PriceEmpire (com fallback para Steam Market e cálculo de mercado).
- *
- * @param {string} nomeSkin Nome base da skin (ex: "AK-47 | Ice Coaled")
- * @param {string} raridadeNome Nome da raridade (ex: "Covert")
- * @param {string} wearNome Nome da conservação (ex: "Factory New")
- * @param {boolean} isStatTrak Se a skin é StatTrak™
- * @param {string|null} moedaOpcional Moeda desejada ('USD', 'BRL', 'EUR'); usa AsyncStorage se omitida
- * @returns {Promise<{ precoFormatado: string, valorNumerico: number, valorUsd: number, moeda: string, fonte: string }>}
- */
-export async function obterPrecoSkin(
-  nomeSkin,
+function calcularPrecoEstimado(
   raridadeNome,
   wearNome,
   isStatTrak = false,
-  moedaOpcional = null
+  nomeSkin = '',
+  opcoes = {}
 ) {
-  const marketHashName = formatarMarketHashName(nomeSkin, wearNome, isStatTrak);
-  const moeda = validarMoeda(moedaOpcional) || (await obterMoedaSelecionada());
+  return calcularFallbackDeterministico({
+    skinNome: nomeSkin,
+    raridadeNome,
+    wearNome,
+    isStatTrak,
+    opcoes,
+  });
+}
 
-  // 1. Tenta buscar API Key salva no AsyncStorage
-  let apiKey = null;
-  try {
-    apiKey = await AsyncStorage.getItem(STORAGE_KEY_PRICEMPIRE);
-  } catch (err) {
-    // Se não conseguir ler o AsyncStorage, segue normalmente
-  }
-
-  // 2. Se houver API Key do PriceEmpire cadastrada, faz a requisição oficial para a PriceEmpire
-  if (apiKey && apiKey.trim().length > 0) {
-    try {
-      const urlPricempire = `https://api.pricempire.com/v4/paid/items/prices?app_id=730&api_key=${encodeURIComponent(
-        apiKey.trim()
-      )}&currency=${encodeURIComponent(moeda)}&sources=buff163,skinport,steam`;
-
-      const respostaPe = await fetch(urlPricempire);
-      if (respostaPe.ok) {
-        const dadosPe = await respostaPe.json();
-        // Se a resposta vier em array ou objeto mapeado por market_hash_name
-        let itemPe = null;
-        if (Array.isArray(dadosPe)) {
-          itemPe = dadosPe.find(
-            (i) => (i.market_hash_name || '').toLowerCase() === marketHashName.toLowerCase()
-          );
-        } else if (dadosPe && typeof dadosPe === 'object') {
-          itemPe = dadosPe[marketHashName] || dadosPe[marketHashName.toLowerCase()];
-        }
-
-        if (itemPe && itemPe.prices && itemPe.prices.length > 0) {
-          // Pega o menor preço disponível nos marketplaces da PriceEmpire (convertendo centavos se necessário)
-          const precoEmCentavos = itemPe.prices[0].price || itemPe.prices[0].min_price;
-          const valorBruto =
-            typeof precoEmCentavos === 'number'
-              ? precoEmCentavos > 1000
-                ? precoEmCentavos / 100
-                : precoEmCentavos
-              : 10;
-          const valorFinal = Number(valorBruto.toFixed(2));
-          const valorUsd =
-            moeda === 'USD'
-              ? valorFinal
-              : converterValorMoeda(valorFinal, moeda, 'USD');
-
-          return {
-            precoFormatado: formatarPrecoMoeda(valorFinal, moeda),
-            valorNumerico: valorFinal,
-            valorUsd,
-            moeda,
-            fonte: 'PriceEmpire API',
-          };
-        }
-      }
-    } catch (err) {
-      // Falha de rede ou CORS com PriceEmpire, segue para a próxima alternativa
-    }
-  }
-
-  // 3. Fallback para Steam Community Market API (Endpoint público de preços de itens do CS2)
+async function consultarSteamPriceOverview(marketHashName, moeda) {
   try {
     const codigoSteam = STEAM_CURRENCY_IDS[moeda] || 1;
     const urlSteam = `https://steamcommunity.com/market/priceoverview/?currency=${codigoSteam}&appid=730&market_hash_name=${encodeURIComponent(
@@ -307,45 +406,240 @@ export async function obterPrecoSkin(
     )}`;
 
     const respostaSteam = await fetch(urlSteam);
-    if (respostaSteam.ok) {
-      const dadosSteam = await respostaSteam.json();
-      if (dadosSteam && dadosSteam.success && (dadosSteam.lowest_price || dadosSteam.median_price)) {
-        const precoTexto = dadosSteam.lowest_price || dadosSteam.median_price;
-        const valorNumerico = parsearPrecoSteam(precoTexto, moeda);
-        const valorUsd =
-          moeda === 'USD'
-            ? valorNumerico
-            : converterValorMoeda(valorNumerico, moeda, 'USD');
-
-        return {
-          precoFormatado: formatarPrecoMoeda(valorNumerico, moeda),
-          valorNumerico,
-          valorUsd,
-          moeda,
-          fonte: 'Steam Community Market',
-        };
-      }
+    if (!respostaSteam.ok) {
+      return {
+        valorNumerico: 0,
+        okHttp: false,
+        rateLimited: respostaSteam.status === 429,
+        erroReal: true,
+        status: respostaSteam.status,
+      };
     }
-  } catch (err) {
-    // Falha ao acessar Steam (ex: sem conexão ou limite de requisições excedido)
-  }
 
-  // 4. Fallback de precisão com estimativa estatística do mercado CS2
-  const valorUsd = calcularPrecoEstimado(raridadeNome, wearNome, isStatTrak);
-  const valorNumerico = converterValorMoeda(valorUsd, 'USD', moeda);
+    const dadosSteam = await respostaSteam.json();
+    if (!dadosSteam || !dadosSteam.success) {
+      return {
+        valorNumerico: 0,
+        okHttp: true,
+        rateLimited: false,
+        erroReal: false,
+        status: 200,
+      };
+    }
+
+    const lowest = parsearPrecoSteam(dadosSteam.lowest_price, moeda);
+    const median = parsearPrecoSteam(dadosSteam.median_price, moeda);
+    const volumeStr = String(dadosSteam.volume || '').replace(/[^\d]/g, '');
+    const volume = volumeStr ? parseInt(volumeStr, 10) : null;
+
+    let valorNumerico = 0;
+    if (lowest > 0 && median > 0) {
+      if (lowest > median * 1.6 || (volume !== null && volume <= 2)) {
+        valorNumerico = median;
+      } else {
+        valorNumerico = lowest;
+      }
+    } else if (lowest > 0) {
+      valorNumerico = lowest;
+    } else if (median > 0) {
+      valorNumerico = median;
+    }
+
+    return {
+      valorNumerico,
+      okHttp: true,
+      rateLimited: false,
+      erroReal: false,
+      status: 200,
+    };
+  } catch (err) {
+    return {
+      valorNumerico: 0,
+      okHttp: false,
+      rateLimited: false,
+      erroReal: true,
+      status: 0,
+    };
+  }
+}
+
+function criarResultadoPreco(valorNumerico, moeda, fonte) {
+  const valorSeguro = Number(Number(valorNumerico).toFixed(2));
+  const valorUsd =
+    moeda === 'USD' ? valorSeguro : converterValorMoeda(valorSeguro, moeda, 'USD');
+
   return {
-    precoFormatado: formatarPrecoMoeda(valorNumerico, moeda),
-    valorNumerico,
+    precoFormatado: formatarPrecoMoeda(valorSeguro, moeda),
+    valorNumerico: valorSeguro,
     valorUsd,
     moeda,
-    fonte: 'Mercado CS2 (Estimado)',
+    fonte,
   };
 }
 
-/**
- * Determina a condição padrão de comparação para uma skin:
- * 'Field-Tested' se existir em skin.wears, senão a primeira disponível, senão 'Field-Tested'.
- */
+export async function obterPrecoSkin(
+  nomeSkin,
+  raridadeNome,
+  wearNome,
+  isStatTrak = false,
+  moedaOpcional = null,
+  opcoes = {}
+) {
+  const marketHashName = formatarMarketHashName(nomeSkin, wearNome, isStatTrak, opcoes);
+  const moeda = validarMoeda(moedaOpcional) || (await obterMoedaSelecionada());
+  const chaveCache = `${marketHashName}::${moeda}`;
+
+  const entradaCache = cachePrecos.get(chaveCache);
+  if (entradaCache) {
+    if (Date.now() - entradaCache.timestamp < CACHE_PRECOS_TTL_MS) {
+      return { ...entradaCache.dados };
+    }
+    cachePrecos.delete(chaveCache);
+  }
+
+  if (requisicoesEmAndamento.has(chaveCache)) {
+    const resultadoPendente = await requisicoesEmAndamento.get(chaveCache);
+    return { ...resultadoPendente };
+  }
+
+  const promessaConsulta = (async () => {
+    const salvarNoCache = (chave, dados) => {
+      cachePrecos.set(chave, {
+        timestamp: Date.now(),
+        dados: { ...dados },
+      });
+    };
+
+    let apiKey = null;
+    try {
+      apiKey = await AsyncStorage.getItem(STORAGE_KEY_PRICEMPIRE);
+    } catch (err) {
+
+    }
+
+    if (apiKey && apiKey.trim().length > 0) {
+      try {
+        const urlPricempire = `https://api.pricempire.com/v4/paid/items/prices?app_id=730&api_key=${encodeURIComponent(
+          apiKey.trim()
+        )}&currency=${encodeURIComponent(moeda)}&sources=buff163,skinport,steam`;
+
+        const respostaPe = await fetch(urlPricempire);
+        if (respostaPe.ok) {
+          const dadosPe = await respostaPe.json();
+          let itemPe = null;
+          if (Array.isArray(dadosPe)) {
+            itemPe = dadosPe.find(
+              (i) => (i.market_hash_name || '').toLowerCase() === marketHashName.toLowerCase()
+            );
+          } else if (dadosPe && typeof dadosPe === 'object') {
+            itemPe = dadosPe[marketHashName] || dadosPe[marketHashName.toLowerCase()];
+          }
+
+          if (itemPe && itemPe.prices && itemPe.prices.length > 0) {
+            const precoEmCentavos = itemPe.prices[0].price ?? itemPe.prices[0].min_price;
+            if (
+              typeof precoEmCentavos === 'number' &&
+              Number.isFinite(precoEmCentavos) &&
+              precoEmCentavos > 0
+            ) {
+              const valorFinal = Number((precoEmCentavos / 100).toFixed(2));
+              const resultadoPe = criarResultadoPreco(valorFinal, moeda, 'PriceEmpire API');
+              salvarNoCache(chaveCache, resultadoPe);
+              return resultadoPe;
+            }
+          }
+        }
+      } catch (err) {
+
+      }
+    }
+
+    let houveErroRealSteam = false;
+    const steamRes = await consultarSteamPriceOverview(marketHashName, moeda);
+
+    if (steamRes.valorNumerico > 0) {
+      const resultadoSteam = criarResultadoPreco(
+        steamRes.valorNumerico,
+        moeda,
+        'Steam Community Market'
+      );
+      salvarNoCache(chaveCache, resultadoSteam);
+      return resultadoSteam;
+    }
+
+    if (steamRes.erroReal || steamRes.rateLimited) {
+      houveErroRealSteam = true;
+    } else if (steamRes.okHttp) {
+
+      const infoItem = analisarTipoItem(nomeSkin, opcoes);
+      const wearLimpo = typeof wearNome === 'string' ? wearNome.trim() : '';
+
+      if (infoItem.aceitaWear && wearLimpo.length > 0) {
+        const wearAlternativo = wearLimpo === 'Factory New' ? 'Minimal Wear' : 'Factory New';
+        if (wearAlternativo !== wearLimpo) {
+          const hashAlternativo = formatarMarketHashName(
+            nomeSkin,
+            wearAlternativo,
+            isStatTrak,
+            opcoes
+          );
+          const chaveAlt = `${hashAlternativo}::${moeda}`;
+          const cacheAlt = cachePrecos.get(chaveAlt);
+
+          if (cacheAlt && Date.now() - cacheAlt.timestamp < CACHE_PRECOS_TTL_MS) {
+            salvarNoCache(chaveCache, cacheAlt.dados);
+            return { ...cacheAlt.dados };
+          }
+
+          const altRes = await consultarSteamPriceOverview(hashAlternativo, moeda);
+          if (altRes.valorNumerico > 0) {
+            const resultadoAlt = criarResultadoPreco(
+              altRes.valorNumerico,
+              moeda,
+              'Steam Community Market'
+            );
+            salvarNoCache(chaveAlt, resultadoAlt);
+            salvarNoCache(chaveCache, resultadoAlt);
+            return resultadoAlt;
+          }
+
+          if (altRes.erroReal || altRes.rateLimited) {
+            houveErroRealSteam = true;
+          }
+        }
+      }
+    }
+
+    const valorUsd = calcularPrecoEstimado(raridadeNome, wearNome, isStatTrak, nomeSkin, opcoes);
+    const valorNumerico = converterValorMoeda(valorUsd, 'USD', moeda);
+    const resultadoFallback = {
+      precoFormatado: formatarPrecoMoeda(valorNumerico, moeda),
+      valorNumerico,
+      valorUsd,
+      moeda,
+      fonte: 'Mercado CS2 (Estimado)',
+    };
+
+    if (!houveErroRealSteam) {
+      salvarNoCache(chaveCache, resultadoFallback);
+    } else {
+      Object.defineProperty(resultadoFallback, '_steamErroReal', {
+        value: true,
+        enumerable: false,
+      });
+    }
+
+    return resultadoFallback;
+  })();
+
+  requisicoesEmAndamento.set(chaveCache, promessaConsulta);
+  try {
+    return await promessaConsulta;
+  } finally {
+    requisicoesEmAndamento.delete(chaveCache);
+  }
+}
+
 function obterWearPadrao(skin) {
   if (Array.isArray(skin?.wears) && skin.wears.length > 0) {
     const temFieldTested = skin.wears.some((w) => {
@@ -359,9 +653,6 @@ function obterWearPadrao(skin) {
   return 'Field-Tested';
 }
 
-/**
- * Embaralha um array utilizando o algoritmo de Fisher-Yates
- */
 function embaralharArray(arr) {
   const copia = [...arr];
   for (let i = copia.length - 1; i > 0; i--) {
@@ -371,76 +662,24 @@ function embaralharArray(arr) {
   return copia;
 }
 
-/**
- * Gera um hash determinístico a partir de uma string
- */
-function gerarSeed(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash);
+function calcularPrecoEstimadoDeterministo(
+  skinId,
+  skinNome,
+  wearNome,
+  raridadeNome = '',
+  isStatTrak = false,
+  opcoes = {}
+) {
+  return calcularFallbackDeterministico({
+    skinId,
+    skinNome,
+    raridadeNome,
+    wearNome,
+    isStatTrak,
+    opcoes,
+  });
 }
 
-/**
- * Calcula uma estimativa de preço de mercado realista e determinística por skin,
- * considerando a raridade do item para manter valores consistentes em todas as categorias.
- */
-function calcularPrecoEstimadoDeterministo(skinId, skinNome, wearNome, raridadeNome = '') {
-  const seed = gerarSeed(`${skinId || ''}_${skinNome || ''}`);
-  const r = (raridadeNome || '').toLowerCase();
-
-  let baseMin = 1.0;
-  let baseMax = 5.0;
-
-  if (r.includes('consumer') || r.includes('industrial')) {
-    baseMin = 0.08;
-    baseMax = 1.8;
-  } else if (r.includes('mil-spec') || r.includes('rare_weapon')) {
-    baseMin = 0.6;
-    baseMax = 4.5;
-  } else if (r.includes('restricted') || r.includes('mythical')) {
-    baseMin = 3.0;
-    baseMax = 18.0;
-  } else if (r.includes('classified') || r.includes('legendary')) {
-    baseMin = 20.0;
-    baseMax = 75.0;
-  } else if (r.includes('covert') || r.includes('ancient')) {
-    baseMin = 50.0;
-    baseMax = 320.0;
-  } else if (
-    r.includes('extraordinary') ||
-    r.includes('contraband') ||
-    (skinNome && skinNome.includes('★'))
-  ) {
-    baseMin = 180.0;
-    baseMax = 950.0;
-  } else {
-    baseMin = 5.0;
-    baseMax = 35.0;
-  }
-
-  const base = baseMin + ((seed % 1000) / 1000) * (baseMax - baseMin);
-
-  let multiplicadorWear = 0.95;
-  const wear = (wearNome || '').toLowerCase();
-  if (wear.includes('factory new')) multiplicadorWear = 1.65;
-  else if (wear.includes('minimal wear')) multiplicadorWear = 1.25;
-  else if (wear.includes('field-tested')) multiplicadorWear = 0.95;
-  else if (wear.includes('well-worn')) multiplicadorWear = 0.8;
-  else if (wear.includes('battle-scarred')) multiplicadorWear = 0.7;
-
-  return Number((base * multiplicadorWear).toFixed(2));
-}
-
-/**
- * Obtém a lista de skins de qualquer raridade com preços atualizados para o minigame,
- * filtrando itens válidos e aplicando arquitetura em 3 camadas com concorrência controlada.
- *
- * @param {string|null} moedaOpcional Moeda desejada ('USD', 'BRL', 'EUR')
- * @returns {Promise<Array<{ id: string, name: string, image: string, rarityName: string, rarityColor: string, wear: string, valorUsd: number, fonte: string }>>}
- */
 export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
   const moeda = validarMoeda(moedaOpcional) || (await obterMoedaSelecionada());
 
@@ -471,7 +710,6 @@ export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
     throw new Error('Formato inválido retornado pela API de skins.');
   }
 
-  // Filtra skins de qualquer raridade com id, name e image válidos
   const skinsElegiveis = todasSkins.filter(
     (skin) =>
       skin &&
@@ -488,15 +726,13 @@ export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
     throw new Error('Não foi possível carregar skins com preço válido.');
   }
 
-  // Verifica se há chave de API do PriceEmpire
   let apiKey = null;
   try {
     apiKey = await AsyncStorage.getItem(STORAGE_KEY_PRICEMPIRE);
   } catch (err) {
-    // Continua sem chave
+
   }
 
-  // 1. Tenta batch PriceEmpire v4 se chave existir
   if (apiKey && apiKey.trim().length > 0) {
     try {
       const urlPricempire = `https://api.pricempire.com/v4/paid/items/prices?app_id=730&api_key=${encodeURIComponent(
@@ -530,15 +766,15 @@ export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
 
           let precoCentavos = null;
           if (Array.isArray(itemPe.prices) && itemPe.prices.length > 0) {
-            precoCentavos = itemPe.prices[0].price || itemPe.prices[0].min_price;
+            precoCentavos = itemPe.prices[0].price ?? itemPe.prices[0].min_price;
           } else if (typeof itemPe.price === 'number') {
             precoCentavos = itemPe.price;
           } else if (typeof itemPe.min_price === 'number') {
             precoCentavos = itemPe.min_price;
           }
 
-          if (typeof precoCentavos === 'number' && precoCentavos > 0) {
-            const valorBruto = precoCentavos > 1000 ? precoCentavos / 100 : precoCentavos;
+          if (typeof precoCentavos === 'number' && Number.isFinite(precoCentavos) && precoCentavos > 0) {
+            const valorBruto = precoCentavos / 100;
             const valorNumerico = Number(valorBruto.toFixed(2));
             if (Number.isFinite(valorNumerico) && valorNumerico > 0) {
               const valorUsd =
@@ -564,22 +800,18 @@ export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
         }
       }
     } catch (peErr) {
-      // Falha no batch do PriceEmpire, segue para a consulta padrão
+
     }
   }
 
-  // 2. Sem chave PriceEmpire ou após falha no batch:
-  // Embaralha as skins elegíveis de qualquer raridade e seleciona amostra
   const amostra = embaralharArray(skinsElegiveis).slice(0, 35);
   const skinsProntas = [];
   let falhasConsecutivasSteam = 0;
 
-  const processarItem = async (skin) => {
+  const processarItem = async (skin, idx) => {
     const wear = obterWearPadrao(skin);
     const raridadeNome = skin.rarity?.name || 'Mil-Spec Grade';
 
-    // Proteção de tempo e rate-limit: se a Steam falhar em 2 tentativas consecutivas,
-    // passa a usar diretamente o fallback estimado determinístico para o restante do lote
     if (falhasConsecutivasSteam >= 2) {
       const valorUsd = calcularPrecoEstimadoDeterministo(skin.id, skin.name, wear, raridadeNome);
       if (Number.isFinite(valorUsd) && valorUsd > 0) {
@@ -597,6 +829,10 @@ export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
       return null;
     }
 
+    if (idx > 0) {
+      await aguardarMs(250);
+    }
+
     try {
       const infoPreco = await obterPrecoSkin(skin.name, raridadeNome, wear, false, moeda);
       if (infoPreco && Number.isFinite(infoPreco.valorUsd) && infoPreco.valorUsd > 0) {
@@ -605,7 +841,7 @@ export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
           infoPreco.fonte === 'PriceEmpire API'
         ) {
           falhasConsecutivasSteam = 0;
-        } else {
+        } else if (infoPreco._steamErroReal) {
           falhasConsecutivasSteam++;
         }
 
@@ -628,15 +864,14 @@ export async function obterSkinsClassifiedComPreco(moedaOpcional = null) {
     return null;
   };
 
-  // Concorrência controlada de até 4 itens por vez
-  const CONCORRENCIA_MAX = 4;
+  const CONCORRENCIA_MAX = 2;
   let ponteiro = 0;
 
   const worker = async () => {
     while (ponteiro < amostra.length) {
       const idx = ponteiro++;
       const skinAtual = amostra[idx];
-      const resultado = await processarItem(skinAtual);
+      const resultado = await processarItem(skinAtual, idx);
       if (resultado && Number.isFinite(resultado.valorUsd) && resultado.valorUsd > 0) {
         skinsProntas.push(resultado);
       }

@@ -2,8 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View, Image } from 'react-native';
 import { CORES } from '../constants/cs2Theme';
 
-// Card simples para exibir uma skin no Higher or Lower (sem raridade)
-export default function HigherLowerCard({ skin, ocultarPreco = false, destaqueEstado = null }) {
+export default function CartaoMaiorMenor({ skin, ocultarPreco = false, destaqueEstado = null }) {
   if (!skin) return null;
 
   return (

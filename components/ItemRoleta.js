@@ -6,7 +6,7 @@ function limparTexto(texto) {
   return (texto || '').replace(/[\u2605\u2122]/g, '').trim();
 }
 
-export default function RouletteItem({ item, largura = 120, isDestaque = false }) {
+export default function ItemRoleta({ item, largura = 120, isDestaque = false }) {
   if (!item) return null;
 
   const corRaridade =

@@ -1,18 +1,15 @@
 import { View, Text, Image, StyleSheet } from 'react-native';
 
-// Componente reutilizável que representa um card simples de skin na lista do catálogo.
-export default function SkinCard({ item }) {
-  // Cor e nome da raridade vindos da API
+export default function CartaoSkin({ item }) {
+
   const corRaridade = item.rarity?.color || '#2B6CB0';
   const nomeRaridade = item.rarity?.name || 'Sem raridade';
 
-  // Monta o texto de categoria e arma da skin
   const categoria = item.category?.name || '';
   const arma = item.weapon?.name || '';
   const categoriaArma =
     categoria && arma ? `${categoria} - ${arma}` : categoria || arma || 'CS2 Item';
 
-  // Verifica se a skin possui valores válidos de float
   const temFloat =
     item.min_float !== null &&
     item.min_float !== undefined &&

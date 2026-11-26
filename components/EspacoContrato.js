@@ -1,8 +1,7 @@
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { CORES } from '../constants/cs2Theme';
 
-// Slot individual para exibir uma skin selecionada no contrato
-export default function ContractSlot({ item, indice, onRemover }) {
+export default function EspacoContrato({ item, indice, onRemover }) {
   if (!item) {
     return (
       <View style={[styles.slot, styles.slotVazio]}>

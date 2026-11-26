@@ -10,13 +10,11 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import SkinCard from '../components/SkinCard';
+import CartaoSkin from '../components/CartaoSkin';
 
-// Endereço oficial da API ByMykel CSGO-API com todas as skins em inglês
 const URL_API_SKINS =
   'https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/skins.json';
 
-// Opções fixas para os filtros de Categoria e Raridade
 const CATEGORIAS = [
   'Todas',
   'Pistols',
@@ -40,20 +38,18 @@ const RARIDADES = [
   'Extraordinary',
 ];
 
-export default function CatalogoScreen() {
-  // Padrão de 3 estados para consumo de API: dados, carregamento e erro
+export default function TelaCatalogo() {
+
   const [skins, setSkins] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Estados da busca por texto, dos filtros selecionados e dos modais dropdown
   const [busca, setBusca] = useState('');
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todas');
   const [raridadeSelecionada, setRaridadeSelecionada] = useState('Todas');
   const [modalCategoriaAberto, setModalCategoriaAberto] = useState(false);
   const [modalRaridadeAberto, setModalRaridadeAberto] = useState(false);
 
-  // Busca o catálogo de skins na API usando fetch
   const carregarSkins = () => {
     setIsLoading(true);
     setError(null);
@@ -76,19 +72,16 @@ export default function CatalogoScreen() {
       });
   };
 
-  // Executa apenas uma vez ao abrir a tela
   useEffect(() => {
     carregarSkins();
   }, []);
 
-  // Restaura a busca e todos os filtros para o estado inicial
   const limparFiltros = () => {
     setBusca('');
     setCategoriaSelecionada('Todas');
     setRaridadeSelecionada('Todas');
   };
 
-  // Retorno antecipado enquanto a API está carregando
   if (isLoading) {
     return (
       <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.centralizado}>
@@ -98,7 +91,6 @@ export default function CatalogoScreen() {
     );
   }
 
-  // Retorno antecipado caso ocorra algum erro
   if (error) {
     return (
       <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.centralizado}>
@@ -114,7 +106,6 @@ export default function CatalogoScreen() {
     );
   }
 
-  // Filtragem combinada por texto (nome da skin ou arma), categoria e raridade
   const skinsFiltradas = skins.filter((item) => {
     const termo = busca.trim().toLowerCase();
     const nomeSkin = item.name ? item.name.toLowerCase() : '';
@@ -142,13 +133,12 @@ export default function CatalogoScreen() {
 
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.container}>
-      {/* Cabeçalho simples com título e contador de resultados */}
+
       <View style={styles.cabecalho}>
         <Text style={styles.titulo}>Catálogo de Skins</Text>
         <Text style={styles.contador}>{textoContador}</Text>
       </View>
 
-      {/* Barra de busca simples com botão de limpar */}
       <View style={styles.barraBusca}>
         <TextInput
           style={styles.campoBusca}
@@ -168,7 +158,6 @@ export default function CatalogoScreen() {
         )}
       </View>
 
-      {/* Dropdowns lado a lado para Categoria e Raridade */}
       <View style={styles.linhaFiltros}>
         <View style={styles.colunaFiltro}>
           <Text style={styles.rotuloFiltro}>Categoria</Text>
@@ -243,13 +232,12 @@ export default function CatalogoScreen() {
         </View>
       </View>
 
-      {/* Lista principal com as skins filtradas */}
       <FlatList
         style={styles.listaPrincipal}
         contentContainerStyle={styles.conteudoLista}
         data={skinsFiltradas}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <SkinCard item={item} />}
+        renderItem={({ item }) => <CartaoSkin item={item} />}
         ItemSeparatorComponent={() => <View style={styles.separador} />}
         ListEmptyComponent={() => (
           <View style={styles.vazioContainer}>
@@ -270,7 +258,6 @@ export default function CatalogoScreen() {
         )}
       />
 
-      {/* Modal de seleção de Categoria */}
       <Modal
         visible={modalCategoriaAberto}
         onRequestClose={() => setModalCategoriaAberto(false)}
@@ -318,7 +305,6 @@ export default function CatalogoScreen() {
         </SafeAreaView>
       </Modal>
 
-      {/* Modal de seleção de Raridade */}
       <Modal
         visible={modalRaridadeAberto}
         onRequestClose={() => setModalRaridadeAberto(false)}

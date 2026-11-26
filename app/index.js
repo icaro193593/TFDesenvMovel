@@ -2,11 +2,11 @@ import { router } from 'expo-router';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-export default function InicioScreen() {
+export default function TelaInicio() {
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.safeArea}>
       <ScrollView style={styles.container} contentContainerStyle={styles.conteudo}>
-        {/* Caixa simples de título no topo */}
+
         <View style={styles.topo}>
           <Text style={styles.titulo}>Garbskins CS2</Text>
           <Text style={styles.subtitulo}>Catálogo e ferramentas de CS2</Text>
@@ -16,7 +16,6 @@ export default function InicioScreen() {
           <Text style={styles.textoBotao}>Catálogo</Text>
         </TouchableOpacity>
 
-        {/* Botões simples das demais telas */}
         <TouchableOpacity style={styles.botao} activeOpacity={0.7} onPress={() => router.push('/caixas')}>
           <Text style={styles.textoBotao}>Abertura de Caixas</Text>
         </TouchableOpacity>
@@ -28,6 +27,9 @@ export default function InicioScreen() {
         </TouchableOpacity>
         <TouchableOpacity style={styles.botao} activeOpacity={0.7} onPress={() => router.push('/higherlower')}>
           <Text style={styles.textoBotao}>Higher or Lower</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.botao} activeOpacity={0.7} onPress={() => router.push('/upgrades')}>
+          <Text style={styles.textoBotao}>Upgrades</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.botao} activeOpacity={0.7} onPress={() => router.push('/configuracoes')}>
           <Text style={styles.textoBotao}>Configurações</Text>

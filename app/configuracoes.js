@@ -11,7 +11,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Chave compartilhada com o serviço de conversão de moeda
 const CHAVE_MOEDA = '@moeda_selecionada';
 const MOEDAS_VALIDAS = ['USD', 'BRL', 'EUR'];
 
@@ -21,12 +20,11 @@ const OPCOES_MOEDA = [
   { codigo: 'EUR', rotulo: 'Euro (EUR - €)' },
 ];
 
-export default function ConfiguracoesScreen() {
+export default function TelaConfiguracoes() {
   const [moedaSelecionada, setMoedaSelecionada] = useState('USD');
   const [modalMoedaAberto, setModalMoedaAberto] = useState(false);
   const [modalConfirmacaoAberto, setModalConfirmacaoAberto] = useState(false);
 
-  // Carrega a moeda salva ao abrir a tela (padrão USD)
   useEffect(() => {
     const carregarMoeda = async () => {
       try {
@@ -35,14 +33,13 @@ export default function ConfiguracoesScreen() {
           setMoedaSelecionada(moedaSalva);
         }
       } catch (erro) {
-        // Mantém o padrão USD se não conseguir ler do AsyncStorage
+
       }
     };
 
     carregarMoeda();
   }, []);
 
-  // Salva a nova moeda imediatamente no AsyncStorage
   const selecionarMoeda = async (novaMoeda) => {
     try {
       await AsyncStorage.setItem(CHAVE_MOEDA, novaMoeda);
@@ -53,7 +50,6 @@ export default function ConfiguracoesScreen() {
     }
   };
 
-  // Apaga todos os dados locais e restaura o padrão inicial
   const confirmarLimparCache = async () => {
     try {
       await AsyncStorage.clear();
@@ -71,7 +67,7 @@ export default function ConfiguracoesScreen() {
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.safeArea}>
       <ScrollView style={styles.container} contentContainerStyle={styles.conteudo}>
-        {/* Cabeçalho simples da tela */}
+
         <View style={styles.cabecalho}>
           <Text style={styles.titulo}>Configurações</Text>
           <Text style={styles.subtitulo}>
@@ -79,7 +75,6 @@ export default function ConfiguracoesScreen() {
           </Text>
         </View>
 
-        {/* Seção 1 — Câmbio / Moeda das Skins */}
         <View style={styles.secao}>
           <Text style={styles.tituloSecao}>Câmbio (Moeda)</Text>
           <Text style={styles.descricaoSecao}>
@@ -98,7 +93,6 @@ export default function ConfiguracoesScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Seção 2 — Limpar Cache e Resetar Sessão */}
         <View style={styles.secao}>
           <Text style={styles.tituloSecao}>Sessão e Cache</Text>
           <Text style={styles.descricaoSecao}>
@@ -118,7 +112,6 @@ export default function ConfiguracoesScreen() {
         </View>
       </ScrollView>
 
-      {/* Modal de seleção de Moeda */}
       <Modal
         visible={modalMoedaAberto}
         onRequestClose={() => setModalMoedaAberto(false)}
@@ -163,7 +156,6 @@ export default function ConfiguracoesScreen() {
         </SafeAreaView>
       </Modal>
 
-      {/* Modal de confirmação antes de apagar tudo */}
       <Modal
         visible={modalConfirmacaoAberto}
         onRequestClose={() => setModalConfirmacaoAberto(false)}

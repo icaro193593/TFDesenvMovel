@@ -4,11 +4,11 @@ import { StatusBar } from 'expo-status-bar';
 import { Drawer } from 'expo-router/drawer';
 import { MaterialIcons } from '@expo/vector-icons';
 
-export default function RootLayout() {
+export default function LayoutRaiz() {
   return (
-    // SafeAreaProvider garante que o app respeite entalhes e barras do sistema
+
     <SafeAreaProvider>
-      {/* StatusBar clara para contrastar com o cabeçalho azul CS2 */}
+
       <StatusBar style="light" />
 
       <Drawer
@@ -79,6 +79,15 @@ export default function RootLayout() {
             title: 'Higher or Lower',
             drawerIcon: ({ color, size }) => (
               <MaterialIcons name="trending-up" size={size} color={color} />
+            ),
+          }}
+        />
+        <Drawer.Screen
+          name="upgrades"
+          options={{
+            title: 'Upgrades',
+            drawerIcon: ({ color, size }) => (
+              <MaterialIcons name="upgrade" size={size} color={color} />
             ),
           }}
         />

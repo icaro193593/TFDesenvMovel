@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -9,21 +9,27 @@ import {
   ActivityIndicator,
   Image,
   Modal,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import {
   converterValorMoeda,
-  formatarPrecoMoeda,
   obterMoedaSelecionada,
 } from '../services/priceService';
+import {
+  obterSaldoBRL,
+  calcularValorVendaBRL,
+  venderSkinDoInventario,
+  venderTodoInventario,
+  formatarBRLNaMoeda,
+  formatarValorVendaSkin,
+} from '../services/economyService';
+import { CORES } from '../constants/cs2Theme';
 
-// Chave utilizada para persistência do inventário local do usuário
 const STORAGE_KEY_INVENTARIO = '@inventario_skins';
 
-// Opções de ordenação disponíveis no modal de filtro
 const OPCOES_ORDENACAO = [
   { id: 'maior_preco', rotulo: 'Maior preço' },
   { id: 'menor_preco', rotulo: 'Menor preço' },
@@ -31,7 +37,6 @@ const OPCOES_ORDENACAO = [
   { id: 'menos_recente', rotulo: 'Menos recente' },
 ];
 
-// Extrai timestamp numérico (ms) de campos conhecidos ou do idInventario/idUnico gerado via Date.now()
 const obterTimestampItem = (item) => {
   if (!item) return null;
   if (typeof item.timestamp === 'number' && Number.isFinite(item.timestamp)) {
@@ -49,7 +54,6 @@ const obterTimestampItem = (item) => {
   return null;
 };
 
-// Converte dataObtencao (DD/MM/YYYY) em timestamp de dia para fallback
 const obterDataDiaItem = (item) => {
   if (!item?.dataObtencao || typeof item.dataObtencao !== 'string') return null;
   const matchData = item.dataObtencao.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
@@ -61,23 +65,49 @@ const obterDataDiaItem = (item) => {
   return Number.isFinite(ts) ? ts : null;
 };
 
-export default function InventarioScreen() {
+export default function TelaInventario() {
   const [itens, setItens] = useState([]);
   const [moedaAtual, setMoedaAtual] = useState('USD');
+  const [saldoBRL, setSaldoBRL] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [busca, setBusca] = useState('');
   const [ordenacao, setOrdenacao] = useState('mais_recente');
   const [modalOrdenacaoAberto, setModalOrdenacaoAberto] = useState(false);
+  const [modalVenderTudoAberto, setModalVenderTudoAberto] = useState(false);
+  const [mensagemFeedback, setMensagemFeedback] = useState('');
+  const [vendendoId, setVendendoId] = useState(null);
+  const [vendendoTudo, setVendendoTudo] = useState(false);
+  const timerFeedbackRef = useRef(null);
 
-  // Carrega as skins salvas e a moeda ativa do AsyncStorage
+  useEffect(() => {
+    return () => {
+      if (timerFeedbackRef.current) {
+        clearTimeout(timerFeedbackRef.current);
+      }
+    };
+  }, []);
+
+  const exibirFeedback = (texto) => {
+    if (timerFeedbackRef.current) {
+      clearTimeout(timerFeedbackRef.current);
+    }
+    setMensagemFeedback(texto);
+    timerFeedbackRef.current = setTimeout(() => {
+      setMensagemFeedback('');
+      timerFeedbackRef.current = null;
+    }, 3000);
+  };
+
   const carregarInventario = () => {
     setIsLoading(true);
     Promise.all([
       AsyncStorage.getItem(STORAGE_KEY_INVENTARIO),
       obterMoedaSelecionada(),
+      obterSaldoBRL(),
     ])
-      .then(([dados, moeda]) => {
+      .then(([dados, moeda, saldo]) => {
         setMoedaAtual(moeda);
+        setSaldoBRL(typeof saldo === 'number' && Number.isFinite(saldo) ? saldo : 0);
         if (dados) {
           const lista = JSON.parse(dados);
           setItens(Array.isArray(lista) ? lista : []);
@@ -94,14 +124,12 @@ export default function InventarioScreen() {
       });
   };
 
-  // Atualiza automaticamente o inventário e a moeda toda vez que o usuário entra na aba
   useFocusEffect(
     useCallback(() => {
       carregarInventario();
     }, [])
   );
 
-  // Calcula o valor da skin na moeda ativa (assume 'USD' para itens antigos sem campo moeda)
   const obterValorNaMoedaAtual = (item) => {
     const moedaItem = item.moeda || 'USD';
     if (moedaItem === moedaAtual && typeof item.valorNumerico === 'number') {
@@ -114,7 +142,6 @@ export default function InventarioScreen() {
     return converterValorMoeda(valorBase, moedaItem, moedaAtual);
   };
 
-  // Remove um item específico do inventário pelo ID único
   const removerItem = (idInventario) => {
     const novaLista = itens.filter((i) => i.idInventario !== idInventario);
     setItens(novaLista);
@@ -126,7 +153,6 @@ export default function InventarioScreen() {
     );
   };
 
-  // Remove todos os itens do inventário de uma só vez
   const limparInventarioCompleto = () => {
     setItens([]);
     AsyncStorage.setItem(STORAGE_KEY_INVENTARIO, JSON.stringify([])).catch(
@@ -136,13 +162,71 @@ export default function InventarioScreen() {
     );
   };
 
-  // Mapa de índice original para fallback estável na ordenação por data
+  const venderItemDireto = async (item) => {
+    if (!item || vendendoId || vendendoTudo) return;
+    const idAlvo = item.idInventario || item.id;
+    setVendendoId(idAlvo);
+
+    try {
+      const resultado = await venderSkinDoInventario(item.idInventario, item);
+      if (resultado?.ok) {
+        if (Array.isArray(resultado.novaLista)) {
+          setItens(resultado.novaLista);
+        } else {
+          setItens((prev) => prev.filter((i) => i.idInventario !== item.idInventario));
+        }
+        if (typeof resultado.novoSaldo === 'number') {
+          setSaldoBRL(resultado.novoSaldo);
+        }
+        exibirFeedback(`Vendida por ${formatarBRLNaMoeda(resultado.valorBRL, moedaAtual)}!`);
+      } else {
+        Alert.alert('Aviso', 'Não foi possível concluir a venda desta skin.');
+      }
+    } catch (err) {
+      console.error('Erro ao vender skin:', err);
+      Alert.alert('Erro', 'Ocorreu um erro ao vender a skin.');
+    } finally {
+      setVendendoId(null);
+    }
+  };
+
+  const executarVenderTudo = async () => {
+    if (itens.length === 0 || vendendoTudo) return;
+    setVendendoTudo(true);
+
+    try {
+      const resultado = await venderTodoInventario();
+      if (resultado?.ok) {
+        setItens([]);
+        if (typeof resultado.novoSaldo === 'number') {
+          setSaldoBRL(resultado.novoSaldo);
+        }
+        const qtd = resultado.quantidadeVendida ?? itens.length;
+        const textoValor = formatarBRLNaMoeda(resultado.valorTotalBRL, moedaAtual);
+        exibirFeedback(
+          `${qtd} ${qtd === 1 ? 'skin vendida' : 'skins vendidas'} por ${textoValor}!`
+        );
+      } else {
+        exibirFeedback('Não foi possível vender as skins do inventário.');
+      }
+    } catch (err) {
+      console.error('Erro ao vender tudo:', err);
+      exibirFeedback('Ocorreu um erro ao vender as skins.');
+    } finally {
+      setVendendoTudo(false);
+    }
+  };
+
+  const confirmarVenderTudo = () => {
+    if (itens.length === 0 || vendendoTudo) return;
+    setModalVenderTudoAberto(true);
+  };
+
   const indicesOriginais = new Map();
   itens.forEach((item, idx) => {
     indicesOriginais.set(item, idx);
   });
 
-  // Filtra e ordena as skins do inventário
   const itensProcessados = itens
     .filter((item) => {
       const termo = busca.trim().toLowerCase();
@@ -173,63 +257,80 @@ export default function InventarioScreen() {
         return (diaA - diaB) * direcao;
       }
 
-      // Fallback para ordem de inserção (unshift mantém o mais recente no índice 0)
       const idxA = indicesOriginais.get(a) ?? 0;
       const idxB = indicesOriginais.get(b) ?? 0;
       return ordenacao === 'menos_recente' ? idxB - idxA : idxA - idxB;
     });
 
-  // Calcula o valor total estimado de todas as skins guardadas na moeda ativa
-  const valorTotalInventario = itens.reduce((acc, curr) => {
-    return acc + obterValorNaMoedaAtual(curr);
+  const valorTotalVendaBRL = itens.reduce((acc, curr) => {
+    return acc + calcularValorVendaBRL(curr);
   }, 0);
 
-  // Exibição de carregamento inicial (somente no primeiro carregamento)
   if (isLoading && itens.length === 0) {
     return (
       <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.centralizado}>
-        <ActivityIndicator size="large" color="#F58220" />
-        <Text style={styles.textoCarregando}>Carregando seu inventário...</Text>
+        <ActivityIndicator size="large" color={CORES.azulPrincipal} />
+        <Text style={styles.textoCarregando}>Carregando inventário...</Text>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.container}>
-      {/* Cabeçalho com Título e Subtítulo */}
       <View style={styles.cabecalho}>
-        <View style={styles.linhaTitulo}>
+        <View style={styles.linhaTopo}>
           <View>
-            <Text style={styles.titulo}>Meu Inventário</Text>
+            <Text style={styles.titulo}>Inventário</Text>
             <Text style={styles.subtitulo}>
-              {itens.length} {itens.length === 1 ? 'skin guardada' : 'skins guardadas'}
+              {itens.length} {itens.length === 1 ? 'skin' : 'skins'}
             </Text>
           </View>
+          <Text style={styles.saldoTexto}>
+            Saldo: {formatarBRLNaMoeda(saldoBRL, moedaAtual)}
+          </Text>
         </View>
 
-        {/* Card Resumo do Inventário */}
+        {mensagemFeedback.length > 0 && (
+          <View style={styles.bannerFeedback}>
+            <Text style={styles.textoBannerFeedback}>{mensagemFeedback}</Text>
+          </View>
+        )}
+
         {itens.length > 0 && (
           <View style={styles.cardResumo}>
-            <View style={styles.colunaResumo}>
-              <Text style={styles.rotuloResumo}>VALOR TOTAL ESTIMADO</Text>
-              <Text style={styles.valorResumo}>
-                {formatarPrecoMoeda(valorTotalInventario, moedaAtual)}
-              </Text>
-            </View>
+            <Text style={styles.rotuloResumo}>Valor total estimado</Text>
+            <Text style={styles.valorResumo}>
+              {formatarBRLNaMoeda(valorTotalVendaBRL, moedaAtual)}
+            </Text>
 
-            <TouchableOpacity
-              style={styles.botaoLimparTudo}
-              activeOpacity={0.7}
-              onPress={limparInventarioCompleto}
-            >
-              <MaterialIcons name="delete-sweep" size={18} color="#EF4444" />
-              <Text style={styles.textoLimparTudo}>Limpar tudo</Text>
-            </TouchableOpacity>
+            <View style={styles.acoesResumo}>
+              <TouchableOpacity
+                style={[
+                  styles.botaoVenderTudo,
+                  vendendoTudo && styles.botaoDesabilitado,
+                ]}
+                activeOpacity={0.7}
+                disabled={vendendoTudo}
+                onPress={confirmarVenderTudo}
+              >
+                <Text style={styles.textoVenderTudo}>
+                  {vendendoTudo ? 'Vendendo...' : 'Vender tudo'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.botaoLimparTudo}
+                activeOpacity={0.7}
+                disabled={vendendoTudo}
+                onPress={limparInventarioCompleto}
+              >
+                <Text style={styles.textoLimparTudo}>Limpar</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       </View>
 
-      {/* Barra de Busca e Botão de Filtro lado a lado */}
       {itens.length > 0 && (
         <View style={styles.linhaBuscaFiltro}>
           <View style={styles.barraBusca}>
@@ -237,8 +338,8 @@ export default function InventarioScreen() {
               style={styles.campoBusca}
               value={busca}
               onChangeText={setBusca}
-              placeholder="Buscar por skin, arma ou caixa..."
-              placeholderTextColor="#5D79AE"
+              placeholder="Buscar skin..."
+              placeholderTextColor={CORES.textoSecundario}
             />
             {busca.length > 0 && (
               <TouchableOpacity
@@ -253,36 +354,40 @@ export default function InventarioScreen() {
 
           <TouchableOpacity
             style={[
-              styles.botaoFiltro,
-              ordenacao !== 'mais_recente' && styles.botaoFiltroAtivo,
+              styles.botaoOrdenar,
+              ordenacao !== 'mais_recente' && styles.botaoOrdenarAtivo,
             ]}
             activeOpacity={0.7}
             accessibilityLabel="Ordenar inventário"
             onPress={() => setModalOrdenacaoAberto(true)}
           >
-            <MaterialIcons
-              name="filter-list"
-              size={22}
-              color={ordenacao !== 'mais_recente' ? '#1E4C8A' : '#2B6CB0'}
-            />
+            <Text
+              style={[
+                styles.textoBotaoOrdenar,
+                ordenacao !== 'mais_recente' && styles.textoBotaoOrdenarAtivo,
+              ]}
+            >
+              Ordenar
+            </Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {/* Lista de Skins do Inventário */}
       <FlatList
         data={itensProcessados}
-        keyExtractor={(item) => item.idInventario || item.id}
+        keyExtractor={(item, index) => String(item.idInventario || item.id || index)}
         contentContainerStyle={styles.conteudoLista}
         showsVerticalScrollIndicator={false}
         renderItem={({ item }) => {
-          const corRaridade = item.rarity?.color || '#2B6CB0';
-          const nomeRaridade = item.rarity?.name || 'Raridade Oficial';
+          const nomeRaridade = item.rarity?.name || 'Comum';
+          const corRaridade =
+            item.rarity?.color || CORES.raridades[nomeRaridade] || CORES.azulPrincipal;
+          const idItem = item.idInventario || item.id;
+          const estaVendendo = vendendoId === idItem || vendendoTudo;
 
           return (
-            <View style={[styles.cardItem, { borderLeftColor: corRaridade }]}>
-              {/* Imagem da Skin */}
-              <View style={styles.containerImagem}>
+            <View style={styles.cardItem}>
+              <View style={styles.linhaSuperiorCard}>
                 {item.image ? (
                   <Image
                     source={{ uri: item.image }}
@@ -294,65 +399,58 @@ export default function InventarioScreen() {
                     <Text style={styles.textoSemImagem}>CS2</Text>
                   </View>
                 )}
-              </View>
 
-              {/* Informações Centrais */}
-              <View style={styles.infoCentral}>
-                <View style={styles.linhaNome}>
-                  {item.isStatTrak && (
-                    <Text style={styles.tagStatTrak}>ST™ </Text>
-                  )}
+                <View style={styles.infoCard}>
                   <Text style={styles.nomeSkin} numberOfLines={2}>
+                    {item.isStatTrak ? 'ST ' : ''}
                     {item.name}
                   </Text>
-                </View>
-
-                <Text style={[styles.raridade, { color: corRaridade }]}>
-                  {nomeRaridade}
-                </Text>
-
-                {item.wearNome && (
-                  <Text style={styles.condicao}>
-                    {item.wearNome}
-                    {item.floatValor ? ` • Float: ${item.floatValor}` : ''}
+                  <Text style={[styles.raridade, { color: corRaridade }]} numberOfLines={1}>
+                    {nomeRaridade}
                   </Text>
-                )}
-
-                {item.nomeCaixaOrigem && (
-                  <Text style={styles.caixaOrigem} numberOfLines={1}>
-                    Caixa: {item.nomeCaixaOrigem}
-                  </Text>
-                )}
-
-                <View style={styles.linhaPrecoData}>
-                  <Text style={styles.precoItem}>
-                    {formatarPrecoMoeda(obterValorNaMoedaAtual(item), moedaAtual)}
-                  </Text>
-                  {item.dataObtencao && (
-                    <Text style={styles.dataItem}>
-                      {item.dataObtencao}
+                  {item.wearNome ? (
+                    <Text style={styles.condicao} numberOfLines={1}>
+                      {item.wearNome}
                     </Text>
-                  )}
+                  ) : null}
                 </View>
               </View>
 
-              {/* Botão de Remover do Inventário */}
-              <TouchableOpacity
-                style={styles.botaoRemover}
-                activeOpacity={0.7}
-                onPress={() => removerItem(item.idInventario)}
-              >
-                <MaterialIcons name="delete-outline" size={22} color="#EF4444" />
-                <Text style={styles.textoBotaoRemover}>Remover</Text>
-              </TouchableOpacity>
+              <View style={styles.linhaInferiorCard}>
+                <Text style={styles.precoItem}>
+                  {formatarValorVendaSkin(item, moedaAtual)}
+                </Text>
+
+                <View style={styles.acoesCard}>
+                  <TouchableOpacity
+                    style={[
+                      styles.botaoVenderSkin,
+                      estaVendendo && styles.botaoDesabilitado,
+                    ]}
+                    activeOpacity={0.7}
+                    disabled={estaVendendo}
+                    onPress={() => venderItemDireto(item)}
+                  >
+                    <Text style={styles.textoBotaoVenderSkin}>
+                      {vendendoId === idItem ? 'Vendendo...' : 'Vender'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.botaoRemover}
+                    activeOpacity={0.7}
+                    disabled={estaVendendo}
+                    onPress={() => removerItem(item.idInventario)}
+                  >
+                    <Text style={styles.textoBotaoRemover}>Remover</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
           );
         }}
         ListEmptyComponent={() => (
           <View style={styles.vazioContainer}>
-            <View style={styles.circuloIconeVazio}>
-              <MaterialIcons name="inventory-2" size={48} color="#2B6CB0" />
-            </View>
             <Text style={styles.vazioTitulo}>
               {busca.length > 0
                 ? 'Nenhuma skin encontrada para essa busca.'
@@ -361,7 +459,7 @@ export default function InventarioScreen() {
             <Text style={styles.vazioSubtitulo}>
               {busca.length > 0
                 ? 'Tente buscar com outros termos.'
-                : 'Abra caixas na aba "Abertura de Caixas" e clique em "Guardar no Inventário" para colecionar suas skins aqui!'}
+                : 'Abra caixas na aba "Abertura de Caixas" para colecionar suas skins aqui!'}
             </Text>
 
             {busca.length > 0 ? (
@@ -378,15 +476,13 @@ export default function InventarioScreen() {
                 activeOpacity={0.7}
                 onPress={() => router.push('/caixas')}
               >
-                <MaterialIcons name="vpn-key" size={18} color="#0F1923" />
-                <Text style={styles.textoBotaoAcaoVazio}>Abrir Caixas Agora</Text>
+                <Text style={styles.textoBotaoAcaoVazio}>Abrir Caixas</Text>
               </TouchableOpacity>
             )}
           </View>
         )}
       />
 
-      {/* Modal de Ordenação do Inventário */}
       <Modal
         visible={modalOrdenacaoAberto}
         onRequestClose={() => setModalOrdenacaoAberto(false)}
@@ -430,6 +526,43 @@ export default function InventarioScreen() {
           </TouchableOpacity>
         </SafeAreaView>
       </Modal>
+
+      <Modal
+        visible={modalVenderTudoAberto}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModalVenderTudoAberto(false)}
+      >
+        <View style={styles.modalConfirmacaoOverlay}>
+          <View style={styles.modalConfirmacaoCard}>
+            <Text style={styles.modalConfirmacaoTitulo}>Vender tudo</Text>
+            <Text style={styles.modalConfirmacaoTexto}>
+              {`Deseja vender todas as ${itens.length} ${itens.length === 1 ? 'skin' : 'skins'} do inventário por ${formatarBRLNaMoeda(valorTotalVendaBRL, moedaAtual)}?`}
+            </Text>
+
+            <View style={styles.modalConfirmacaoAcoes}>
+              <TouchableOpacity
+                style={styles.botaoCancelarModal}
+                activeOpacity={0.7}
+                onPress={() => setModalVenderTudoAberto(false)}
+              >
+                <Text style={styles.textoBotaoCancelarModal}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.botaoConfirmarModal}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setModalVenderTudoAberto(false);
+                  executarVenderTudo();
+                }}
+              >
+                <Text style={styles.textoBotaoConfirmarModal}>Confirmar Venda</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -437,88 +570,120 @@ export default function InventarioScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.fundo,
   },
   centralizado: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.fundo,
     padding: 20,
   },
   textoCarregando: {
-    color: '#1E4C8A',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginTop: 12,
+    color: CORES.textoSecundario,
+    fontSize: 14,
+    marginTop: 10,
   },
   cabecalho: {
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 8,
   },
-  linhaTitulo: {
+  linhaTopo: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   titulo: {
-    color: '#1E4C8A',
-    fontSize: 22,
+    color: CORES.texto,
+    fontSize: 20,
     fontWeight: 'bold',
   },
   subtitulo: {
-    color: '#2B6CB0',
-    fontSize: 13,
+    color: CORES.textoSecundario,
+    fontSize: 12,
     marginTop: 2,
   },
-  cardResumo: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#EBF4FC',
+  saldoTexto: {
+    color: CORES.sucesso,
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  bannerFeedback: {
+    backgroundColor: CORES.sucessoClaro,
     borderWidth: 1,
-    borderColor: '#68A3E5',
+    borderColor: CORES.sucesso,
     borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginTop: 10,
+  },
+  textoBannerFeedback: {
+    color: CORES.sucesso,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  cardResumo: {
+    backgroundColor: CORES.branco,
+    borderWidth: 1,
+    borderColor: CORES.borda,
+    borderRadius: 10,
     padding: 12,
     marginTop: 10,
   },
-  colunaResumo: {
-    flex: 1,
-  },
   rotuloResumo: {
-    color: '#2B6CB0',
-    fontSize: 10,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
+    color: CORES.textoSecundario,
+    fontSize: 12,
   },
   valorResumo: {
-    color: '#1E3A5F',
-    fontSize: 18,
+    color: CORES.texto,
+    fontSize: 20,
     fontWeight: 'bold',
     marginTop: 2,
   },
-  botaoLimparTudo: {
+  acoesResumo: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FEE2E2',
+    gap: 8,
+    marginTop: 10,
+  },
+  botaoVenderTudo: {
+    flex: 1,
+    backgroundColor: CORES.sucesso,
+    borderRadius: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  textoVenderTudo: {
+    color: CORES.branco,
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  botaoLimparTudo: {
+    backgroundColor: CORES.branco,
     borderWidth: 1,
-    borderColor: '#FCA5A5',
-    borderRadius: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    gap: 4,
+    borderColor: CORES.borda,
+    borderRadius: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   textoLimparTudo: {
-    color: '#EF4444',
-    fontSize: 12,
-    fontWeight: 'bold',
+    color: CORES.erro,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  botaoDesabilitado: {
+    opacity: 0.6,
   },
   linhaBuscaFiltro: {
     flexDirection: 'row',
     alignItems: 'center',
     marginHorizontal: 16,
-    marginTop: 6,
+    marginTop: 4,
     marginBottom: 8,
     gap: 8,
   },
@@ -526,16 +691,16 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.branco,
     borderWidth: 1,
-    borderColor: '#68A3E5',
+    borderColor: CORES.borda,
     borderRadius: 8,
     paddingHorizontal: 12,
-    height: 42,
+    height: 40,
   },
   campoBusca: {
     flex: 1,
-    color: '#1E3A5F',
+    color: CORES.texto,
     fontSize: 14,
   },
   botaoLimparBusca: {
@@ -543,201 +708,137 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   textoLimparBusca: {
-    color: '#2B6CB0',
+    color: CORES.azulPrincipal,
     fontSize: 12,
     fontWeight: '600',
   },
-  botaoFiltro: {
-    width: 42,
-    height: 42,
-    backgroundColor: '#FFFFFF',
+  botaoOrdenar: {
+    paddingHorizontal: 14,
+    height: 40,
+    backgroundColor: CORES.branco,
     borderWidth: 1,
-    borderColor: '#68A3E5',
+    borderColor: CORES.borda,
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  botaoFiltroAtivo: {
-    backgroundColor: '#EBF4FC',
-    borderColor: '#1E4C8A',
-    borderWidth: 1.5,
+  botaoOrdenarAtivo: {
+    borderColor: CORES.azulPrincipal,
   },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-  },
-  modalTitulo: {
-    color: '#1E4C8A',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 14,
-  },
-  listaModal: {
-    flex: 1,
-  },
-  opcaoModal: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderRadius: 8,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    marginBottom: 8,
-  },
-  opcaoModalAtiva: {
-    backgroundColor: '#1E4C8A',
-    borderColor: '#1E4C8A',
-  },
-  textoOpcaoModal: {
-    color: '#1E4C8A',
-    fontSize: 16,
+  textoBotaoOrdenar: {
+    color: CORES.texto,
+    fontSize: 13,
     fontWeight: '600',
   },
-  textoOpcaoModalAtiva: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-  },
-  botaoFecharModal: {
-    backgroundColor: '#EBF4FC',
-    borderWidth: 1,
-    borderColor: '#2B6CB0',
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  textoBotaoFecharModal: {
-    color: '#1E4C8A',
-    fontSize: 16,
-    fontWeight: 'bold',
+  textoBotaoOrdenarAtivo: {
+    color: CORES.azulPrincipal,
   },
   conteudoLista: {
     paddingHorizontal: 16,
     paddingTop: 4,
-    paddingBottom: 28,
-    gap: 10,
+    paddingBottom: 24,
   },
   cardItem: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: CORES.branco,
     borderWidth: 1,
-    borderColor: '#68A3E5',
-    borderLeftWidth: 5,
+    borderColor: CORES.borda,
     borderRadius: 8,
     padding: 10,
-    alignItems: 'center',
+    marginBottom: 8,
   },
-  containerImagem: {
-    width: 75,
-    height: 65,
-    backgroundColor: '#EBF4FC',
-    borderRadius: 6,
-    justifyContent: 'center',
+  linhaSuperiorCard: {
+    flexDirection: 'row',
     alignItems: 'center',
   },
   imagemSkin: {
-    width: 70,
-    height: 55,
+    width: 64,
+    height: 48,
   },
   semImagem: {
-    width: 70,
-    height: 55,
+    width: 64,
+    height: 48,
+    backgroundColor: CORES.fundo,
+    borderRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
   },
   textoSemImagem: {
-    color: '#2B6CB0',
+    color: CORES.textoSecundario,
     fontSize: 11,
     fontWeight: 'bold',
   },
-  infoCentral: {
+  infoCard: {
     flex: 1,
-    marginLeft: 12,
-    marginRight: 6,
-  },
-  linhaNome: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  tagStatTrak: {
-    color: '#C95F08',
-    fontSize: 13,
-    fontWeight: 'bold',
+    marginLeft: 10,
   },
   nomeSkin: {
-    color: '#1E3A5F',
+    color: CORES.texto,
     fontSize: 14,
     fontWeight: 'bold',
-    flexShrink: 1,
   },
   raridade: {
-    fontSize: 11,
-    fontWeight: 'bold',
+    fontSize: 12,
+    fontWeight: '600',
     marginTop: 2,
   },
   condicao: {
-    color: '#2B6CB0',
-    fontSize: 11,
-    marginTop: 1,
+    color: CORES.textoSecundario,
+    fontSize: 12,
+    marginTop: 2,
   },
-  caixaOrigem: {
-    color: '#5D79AE',
-    fontSize: 11,
-    marginTop: 1,
-  },
-  linhaPrecoData: {
+  linhaInferiorCard: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 4,
+    alignItems: 'center',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: CORES.fundo,
   },
   precoItem: {
-    color: '#059669',
+    color: CORES.sucesso,
     fontSize: 14,
     fontWeight: 'bold',
   },
-  dataItem: {
-    color: '#94A3B8',
-    fontSize: 10,
+  acoesCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  botaoVenderSkin: {
+    backgroundColor: CORES.sucesso,
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  textoBotaoVenderSkin: {
+    color: CORES.branco,
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   botaoRemover: {
-    alignItems: 'center',
-    justifyContent: 'center',
     paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 4,
   },
   textoBotaoRemover: {
-    color: '#EF4444',
-    fontSize: 10,
-    fontWeight: 'bold',
-    marginTop: 2,
+    color: CORES.erro,
+    fontSize: 12,
+    fontWeight: '600',
   },
   vazioContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 50,
+    paddingVertical: 48,
     paddingHorizontal: 24,
   },
-  circuloIconeVazio: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#EBF4FC',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
   vazioTitulo: {
-    color: '#1E4C8A',
-    fontSize: 18,
+    color: CORES.texto,
+    fontSize: 17,
     fontWeight: 'bold',
     textAlign: 'center',
   },
   vazioSubtitulo: {
-    color: '#2B6CB0',
+    color: CORES.textoSecundario,
     fontSize: 14,
     textAlign: 'center',
     marginTop: 8,
@@ -745,17 +846,122 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   botaoAcaoVazio: {
-    backgroundColor: '#F58220',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 22,
+    backgroundColor: CORES.azulPrincipal,
+    paddingVertical: 11,
+    paddingHorizontal: 20,
     borderRadius: 8,
-    gap: 8,
   },
   textoBotaoAcaoVazio: {
-    color: '#0F1923',
+    color: CORES.branco,
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: CORES.branco,
+    padding: 16,
+  },
+  modalTitulo: {
+    color: CORES.texto,
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 14,
+  },
+  listaModal: {
+    flex: 1,
+  },
+  opcaoModal: {
+    backgroundColor: CORES.branco,
+    borderWidth: 1,
+    borderColor: CORES.borda,
+    borderRadius: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    marginBottom: 8,
+  },
+  opcaoModalAtiva: {
+    backgroundColor: CORES.azulPrincipal,
+    borderColor: CORES.azulPrincipal,
+  },
+  textoOpcaoModal: {
+    color: CORES.texto,
     fontSize: 15,
+    fontWeight: '600',
+  },
+  textoOpcaoModalAtiva: {
+    color: CORES.branco,
+    fontWeight: 'bold',
+  },
+  botaoFecharModal: {
+    backgroundColor: CORES.azulClaro,
+    borderWidth: 1,
+    borderColor: CORES.azulBorda,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  textoBotaoFecharModal: {
+    color: CORES.azulPrincipal,
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  modalConfirmacaoOverlay: {
+    flex: 1,
+    backgroundColor: CORES.modalFundo,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalConfirmacaoCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: CORES.branco,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: CORES.borda,
+    padding: 20,
+  },
+  modalConfirmacaoTitulo: {
+    color: CORES.texto,
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  modalConfirmacaoTexto: {
+    color: CORES.textoSecundario,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 18,
+  },
+  modalConfirmacaoAcoes: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  botaoCancelarModal: {
+    flex: 1,
+    backgroundColor: CORES.branco,
+    borderWidth: 1,
+    borderColor: CORES.borda,
+    borderRadius: 8,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  textoBotaoCancelarModal: {
+    color: CORES.texto,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  botaoConfirmarModal: {
+    flex: 1,
+    backgroundColor: CORES.sucesso,
+    borderRadius: 8,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  textoBotaoConfirmarModal: {
+    color: CORES.branco,
+    fontSize: 14,
     fontWeight: 'bold',
   },
 });

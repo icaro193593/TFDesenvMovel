@@ -1,15 +1,23 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity, ActivityIndicator, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import HigherLowerCard from '../components/HigherLowerCard';
+import CartaoMaiorMenor from '../components/CartaoMaiorMenor';
 import useHigherOrLower from '../hooks/useHigherOrLower';
+import {
+  obterSaldoBRL,
+  adicionarSaldoBRL,
+  obterUpgrades,
+  obterEfeitosUpgrades,
+  formatarBRLNaMoeda,
+} from '../services/economyService';
+import { obterMoedaSelecionada } from '../services/priceService';
 import { CORES } from '../constants/cs2Theme';
 
 const STORAGE_KEY_RECORDE = '@higher_lower_recorde_historico';
 
-// Tela principal do minigame Higher or Lower
-export default function HigherLowerScreen() {
+export default function TelaMaiorMenor() {
   const {
     skinBase,
     skinComparada,
@@ -27,8 +35,31 @@ export default function HigherLowerScreen() {
   } = useHigherOrLower();
 
   const [recordePersistido, setRecordePersistido] = useState(0);
+  const [saldoBRL, setSaldoBRL] = useState(0);
+  const [bonusPorAcerto, setBonusPorAcerto] = useState(0);
+  const [ganhoPartida, setGanhoPartida] = useState(0);
+  const [moedaAtual, setMoedaAtual] = useState('USD');
+  const ultimaPontuacaoPremiadaRef = useRef(0);
 
-  // Carrega o recorde salvo no aparelho ao abrir a tela
+  useFocusEffect(
+    useCallback(() => {
+      let ativo = true;
+
+      Promise.all([obterSaldoBRL(), obterUpgrades(), obterMoedaSelecionada()])
+        .then(([saldo, upgrades, moeda]) => {
+          if (!ativo) return;
+          setSaldoBRL(saldo);
+          setBonusPorAcerto(obterEfeitosUpgrades(upgrades).bonusHigherLowerBRL);
+          setMoedaAtual(moeda);
+        })
+        .catch(() => {});
+
+      return () => {
+        ativo = false;
+      };
+    }, [])
+  );
+
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY_RECORDE)
       .then((valor) => {
@@ -38,7 +69,33 @@ export default function HigherLowerScreen() {
       .catch(() => {});
   }, []);
 
-  // Salva o novo recorde sempre que o jogador superar a marca anterior
+  useEffect(() => {
+    if (pontuacao === 0) {
+      ultimaPontuacaoPremiadaRef.current = 0;
+      setGanhoPartida(0);
+      return;
+    }
+
+    if (pontuacao > ultimaPontuacaoPremiadaRef.current) {
+      const acertosNovos = pontuacao - ultimaPontuacaoPremiadaRef.current;
+      ultimaPontuacaoPremiadaRef.current = pontuacao;
+
+      if (bonusPorAcerto > 0) {
+        const ganho = bonusPorAcerto * acertosNovos;
+        setGanhoPartida((prev) => prev + ganho);
+        adicionarSaldoBRL(ganho)
+          .then((novoSaldo) => {
+            if (typeof novoSaldo === 'number') {
+              setSaldoBRL(novoSaldo);
+            } else {
+              setSaldoBRL((prev) => prev + ganho);
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }, [pontuacao, bonusPorAcerto]);
+
   useEffect(() => {
     const maior = Math.max(recordeSessao, pontuacao);
     if (maior > recordePersistido) {
@@ -74,19 +131,31 @@ export default function HigherLowerScreen() {
     <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.container}>
       <ScrollView contentContainerStyle={styles.conteudo} showsVerticalScrollIndicator={false}>
         <View style={styles.placar}>
-          <Text style={styles.textoPlacar}>Pontos: {pontuacao}</Text>
-          <Text style={styles.textoPlacar}>Recorde: {recordeExibido}</Text>
+          <View style={styles.placarLinha}>
+            <Text style={styles.textoPlacar}>Pontos: {pontuacao}</Text>
+            <Text style={styles.textoPlacar}>Recorde: {recordeExibido}</Text>
+          </View>
+          <View style={styles.placarEconomia}>
+            <Text style={styles.textoSaldo}>Saldo: {formatarBRLNaMoeda(saldoBRL, moedaAtual)}</Text>
+            {bonusPorAcerto > 0 && (
+              <Text style={styles.textoBonus}>Bônus por acerto: +{formatarBRLNaMoeda(bonusPorAcerto, moedaAtual)}</Text>
+            )}
+          </View>
         </View>
 
         {fase === 'revelando' && resultadoRodada && (
           <Text style={[styles.feedback, resultadoRodada === 'acerto' ? styles.textoAcerto : styles.textoErroFeedback]}>
-            {resultadoRodada === 'acerto' ? 'Acertou!' : 'Errou!'}
+            {resultadoRodada === 'acerto'
+              ? bonusPorAcerto > 0
+                ? `Acertou! +${formatarBRLNaMoeda(bonusPorAcerto, moedaAtual)}`
+                : 'Acertou!'
+              : 'Errou!'}
           </Text>
         )}
 
-        <HigherLowerCard skin={skinBase} />
+        <CartaoMaiorMenor skin={skinBase} />
         <Text style={styles.vs}>VS</Text>
-        <HigherLowerCard
+        <CartaoMaiorMenor
           skin={skinComparada}
           ocultarPreco={!mostrarPrecoComparada}
           destaqueEstado={resultadoRodada}
@@ -119,6 +188,9 @@ export default function HigherLowerScreen() {
             <Text style={styles.modalTitulo}>Fim de Jogo</Text>
             <Text style={styles.modalTexto}>Pontuação: {pontuacao}</Text>
             <Text style={styles.modalTexto}>Recorde: {recordeExibido}</Text>
+            {ganhoPartida > 0 && (
+              <Text style={styles.modalGanho}>Ganho na partida: {formatarBRLNaMoeda(ganhoPartida, moedaAtual)}</Text>
+            )}
             {bateuNovoRecorde && <Text style={styles.novoRecorde}>Novo recorde!</Text>}
 
             <TouchableOpacity style={[styles.botaoAzul, styles.botaoModal]} activeOpacity={0.7} onPress={jogarNovamente}>
@@ -138,16 +210,32 @@ const styles = StyleSheet.create({
   textoErro: { fontSize: 16, color: CORES.erro, marginBottom: 14, textAlign: 'center' },
   conteudo: { padding: 16 },
   placar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     backgroundColor: CORES.branco,
     borderWidth: 1,
     borderColor: CORES.borda,
     borderRadius: 10,
     padding: 12,
     marginBottom: 12,
+    gap: 6,
+  },
+  placarLinha: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  placarEconomia: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    borderTopWidth: 1,
+    borderTopColor: CORES.borda,
+    paddingTop: 6,
   },
   textoPlacar: { fontSize: 15, fontWeight: 'bold', color: CORES.texto },
+  textoSaldo: { fontSize: 13, fontWeight: 'bold', color: CORES.sucesso },
+  textoBonus: { fontSize: 12, color: CORES.textoSecundario },
   feedback: { fontSize: 15, fontWeight: 'bold', textAlign: 'center', marginBottom: 10 },
   textoAcerto: { color: CORES.sucesso },
   textoErroFeedback: { color: CORES.erro },
@@ -164,5 +252,6 @@ const styles = StyleSheet.create({
   modalCard: { width: '100%', maxWidth: 320, backgroundColor: CORES.branco, borderRadius: 12, padding: 20, alignItems: 'center' },
   modalTitulo: { fontSize: 20, fontWeight: 'bold', color: CORES.texto, marginBottom: 10 },
   modalTexto: { fontSize: 16, color: CORES.texto, marginBottom: 4 },
+  modalGanho: { fontSize: 15, fontWeight: 'bold', color: CORES.sucesso, marginTop: 4 },
   novoRecorde: { fontSize: 15, fontWeight: 'bold', color: CORES.sucesso, marginTop: 6 },
 });

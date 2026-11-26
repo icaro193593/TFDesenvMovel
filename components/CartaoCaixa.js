@@ -6,7 +6,7 @@ function limparTexto(texto) {
   return (texto || '').replace(/[\u2605\u2122]/g, '').trim();
 }
 
-export default function CaseCard({ item, onPress }) {
+export default function CartaoCaixa({ item, onPress }) {
   return (
     <TouchableOpacity style={styles.card} activeOpacity={0.8} onPress={() => onPress && onPress(item)}>
       <View style={styles.imagemBox}>

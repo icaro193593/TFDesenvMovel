@@ -1,5 +1,3 @@
-// Cores simples do aplicativo Garbskins CS2 (tema claro)
-
 export const CORES = {
   fundo: '#F5F7FA',
   branco: '#FFFFFF',
@@ -17,7 +15,6 @@ export const CORES = {
   avisoClaro: '#FEF3C7',
   modalFundo: 'rgba(0, 0, 0, 0.5)',
 
-  // Cores de raridade do CS2
   raridades: {
     'Consumer Grade': '#64748B',
     'Industrial Grade': '#3B82F6',

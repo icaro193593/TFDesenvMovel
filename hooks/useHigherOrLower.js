@@ -7,17 +7,9 @@ import {
   formatarPrecoMoeda,
 } from '../services/priceService';
 
-// Cache de sessão em escopo de módulo (NÃO persistir em AsyncStorage nem em disco)
 let cacheSkinsSessao = null;
 let recordeSessao = 0;
 
-/**
- * Decora um item de skin adicionando o valor na moeda ativa e o texto formatado.
- *
- * @param {object} skin Objeto base da skin ({ id, name, image, rarityColor, wear, valorUsd, fonte })
- * @param {string} moeda Código da moeda atual ('USD', 'BRL', 'EUR')
- * @returns {object|null}
- */
 export function decorarSkinComMoeda(skin, moeda) {
   if (!skin) return null;
   const valorAtual = converterValorMoeda(skin.valorUsd, 'USD', moeda);
@@ -29,16 +21,6 @@ export function decorarSkinComMoeda(skin, moeda) {
   };
 }
 
-/**
- * Sorteia uma nova skin do pool garantindo que não seja idBase e evitando skins
- * presentes na janela deslizante dos últimos Math.min(10, Math.max(1, pool.length - 2)) IDs.
- * Se todos os candidatos elegíveis estiverem na janela, relaxa mantendo apenas skin.id !== idBase.
- *
- * @param {Array<object>} pool Lista de skins disponíveis
- * @param {string} idBase ID da skin atual contra a qual haverá comparação
- * @param {Array<string>} recentesIds Histórico de IDs sorteados recentemente
- * @returns {object|null}
- */
 export function sortearNovaSkin(pool, idBase, recentesIds = []) {
   if (!pool || pool.length === 0) return null;
   if (pool.length === 1) return pool[0];
@@ -49,12 +31,10 @@ export function sortearNovaSkin(pool, idBase, recentesIds = []) {
 
   let candidatos = pool.filter((s) => s && s.id !== idBase && !setRecentes.has(s.id));
 
-  // Se todos estiverem na janela, relaxa mantendo sempre skin.id !== idBase
   if (candidatos.length === 0) {
     candidatos = pool.filter((s) => s && s.id !== idBase);
   }
 
-  // Salvaguarda caso todos tenham o mesmo id
   if (candidatos.length === 0) {
     candidatos = pool;
   }
@@ -63,9 +43,6 @@ export function sortearNovaSkin(pool, idBase, recentesIds = []) {
   return candidatos[indiceAleatorio];
 }
 
-/**
- * Funções auxiliares para inspeção/reset do cache de sessão em testes unitários
- */
 export function _limparCacheSessaoParaTestes() {
   cacheSkinsSessao = null;
   recordeSessao = 0;
@@ -77,9 +54,6 @@ export function _obterRecordeSessao() {
   return recordeSessao;
 }
 
-/**
- * Hook customizado de lógica para o minigame Higher or Lower.
- */
 export default function useHigherOrLower() {
   const [skinBase, setSkinBase] = useState(null);
   const [skinComparada, setSkinComparada] = useState(null);
@@ -88,8 +62,8 @@ export default function useHigherOrLower() {
   const [moedaAtual, setMoedaAtual] = useState('USD');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [fase, setFase] = useState('jogando'); // 'jogando' | 'revelando' | 'gameover'
-  const [resultadoRodada, setResultadoRodada] = useState(null); // 'acerto' | 'erro' | null
+  const [fase, setFase] = useState('jogando');
+  const [resultadoRodada, setResultadoRodada] = useState(null);
 
   const timerTransicaoRef = useRef(null);
   const poolRef = useRef(cacheSkinsSessao || []);
@@ -105,9 +79,6 @@ export default function useHigherOrLower() {
   const pontuacaoRef = useRef(pontuacao);
   pontuacaoRef.current = pontuacao;
 
-  /**
-   * Inicializa uma rodada com base em um conjunto de skins e uma moeda
-   */
   const iniciarRodadaComPool = useCallback((pool, moeda) => {
     if (!pool || pool.length < 2) return;
 
@@ -138,9 +109,6 @@ export default function useHigherOrLower() {
     setIsLoading(false);
   }, []);
 
-  /**
-   * Carrega o pool de skins (reaproveita cache da sessão se disponível)
-   */
   const carregarSkins = useCallback(
     async (forcar = false) => {
       if (timerTransicaoRef.current) {
@@ -177,9 +145,6 @@ export default function useHigherOrLower() {
     [iniciarRodadaComPool]
   );
 
-  /**
-   * Carga inicial ao montar o hook
-   */
   useEffect(() => {
     carregarSkins(false);
 
@@ -191,9 +156,6 @@ export default function useHigherOrLower() {
     };
   }, [carregarSkins]);
 
-  /**
-   * Sincroniza a moeda selecionada ao focar na tela, recalculando valores sem nova requisição
-   */
   useFocusEffect(
     useCallback(() => {
       let ativo = true;
@@ -216,9 +178,6 @@ export default function useHigherOrLower() {
     }, [])
   );
 
-  /**
-   * Realiza o palpite do usuário ('maior' ou 'menor')
-   */
   const palpitar = useCallback((escolha) => {
     if (faseRef.current !== 'jogando') return;
     const base = skinBaseRef.current;
@@ -228,7 +187,6 @@ export default function useHigherOrLower() {
     const baseVal = Number(base.valorAtual.toFixed(2));
     const compVal = Number(comp.valorAtual.toFixed(2));
 
-    // Empate conta como acerto
     const acertou =
       compVal === baseVal || (escolha === 'maior' ? compVal > baseVal : compVal < baseVal);
 
@@ -279,9 +237,6 @@ export default function useHigherOrLower() {
     }
   }, []);
 
-  /**
-   * Reinicia a rodada reaproveitando o cache de sessão (zero fetch)
-   */
   const jogarNovamente = useCallback(() => {
     if (timerTransicaoRef.current) {
       clearTimeout(timerTransicaoRef.current);
@@ -295,9 +250,6 @@ export default function useHigherOrLower() {
     }
   }, [iniciarRodadaComPool, carregarSkins]);
 
-  /**
-   * Força uma nova busca na API quando chamado após um erro
-   */
   const tentarNovamente = useCallback(() => {
     if (timerTransicaoRef.current) {
       clearTimeout(timerTransicaoRef.current);
